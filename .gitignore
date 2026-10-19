@@ -1,0 +1,19 @@
+# macOS metadata
+.DS_Store
+
+# Personal Obsidian settings
+.obsidian/
+
+# Ignore this folder at the project root
+/backup/
+/docs/
+/review/
+/sources/
+# Ignore Markdown files everywhere
+*.md
+
+# Allow files named README.md
+!README.md
+
+# Ignore files with this extension anywhere
+*.tmp
