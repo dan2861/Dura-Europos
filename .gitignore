@@ -9,6 +9,7 @@
 /docs/
 /review/
 /sources/
+
 # Ignore Markdown files everywhere
 *.md
 
