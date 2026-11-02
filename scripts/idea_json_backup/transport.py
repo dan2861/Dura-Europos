@@ -92,7 +92,14 @@ def collect_http(qids, *, transport=None, timeout_seconds=60, user_agent=DEFAULT
     try:
         response = (transport or HTTPTransport()).open(options["url"], options["headers"], timeout_seconds)
         status = response.status
-        headers = {key.lower(): str(value) for key, value in response.headers.items() if key.lower() in HEADER_NAMES}
+        header_values = {}
+        for key, value in response.headers.items():
+            name = key.lower()
+            if name in HEADER_NAMES:
+                header_values.setdefault(name, []).append(str(value))
+        # HTTPMessage.items() preserves repeated fields. Do not let a later
+        # value conceal the framing/encoding rule used by http.client.
+        headers = {name: ", ".join(values) for name, values in header_values.items()}
         headers_received_at = _now()
         if on_headers:
             on_headers({"status": status, "headers": headers, "started_at": started_at,
@@ -110,10 +117,14 @@ def collect_http(qids, *, transport=None, timeout_seconds=60, user_agent=DEFAULT
             if not chunk:
                 break
         encoded = b"".join(chunks)
+        if len(header_values.get("content-length", [])) > 1:
+            raise OSError("ambiguous Content-Length headers")
         length = headers.get("content-length")
         if length is not None and (not re.fullmatch(r"[0-9]+", length) or len(encoded) != int(length)):
             raise OSError("incomplete response: Content-Length mismatch")
         received_at = _now()
+        if len(header_values.get("content-encoding", [])) > 1:
+            raise ValueError("ambiguous content encoding headers")
         encoding = headers.get("content-encoding", "identity").strip().lower()
         if encoding == "identity":
             body = encoded
@@ -219,7 +230,7 @@ def capture_batch(qids, *, timeout_seconds=60, user_agent=DEFAULT_USER_AGENT, wo
         try:
             process.start()
             process.join(max(0, deadline - time.monotonic()))
-            if process.is_alive():
+            if time.monotonic() >= deadline or process.is_alive():
                 forced_error = "total response deadline exceeded"
         except KeyboardInterrupt:
             interrupted = True

@@ -1,5 +1,7 @@
 """Offline transport tests: no public service is contacted."""
 import gzip
+from http.client import HTTPResponse
+from io import BytesIO
 import json
 import multiprocessing
 import os
@@ -44,6 +46,70 @@ class FakeTransport:
 
 
 class BatchTransportTests(unittest.TestCase):
+    def test_exited_worker_is_still_late_when_parent_resumes_after_deadline(self):
+        class ExitedProcess:
+            def __init__(self, *, target, args):
+                self.args = args
+                self.pid = None
+
+            def start(self):
+                self.pid = 7
+                complete_worker(*self.args)
+
+            def join(self, timeout=None):
+                pass
+
+            def is_alive(self):
+                return False
+
+        with patch('scripts.idea_json_backup.transport.multiprocessing.get_context') as context:
+            context.return_value.Process.side_effect = ExitedProcess
+            with patch('scripts.idea_json_backup.transport.time.monotonic', side_effect=[0, 0, 2]):
+                capture = capture_batch(['Q1'], timeout_seconds=1, worker=complete_worker)
+        self.assertFalse(capture.complete)
+        self.assertIn('deadline', capture.error)
+        self.assertEqual(capture.encoded, b'{}')
+        self.assertIsNone(capture.body)
+
+    def test_duplicate_content_length_cannot_make_truncated_response_complete(self):
+        body = b'{}'
+        for lengths in ((len(body) + 100, len(body)), (len(body), len(body))):
+            with self.subTest(lengths=lengths):
+                raw = (b'HTTP/1.1 200 OK\r\n'
+                       + b''.join(f'Content-Length: {length}\r\n'.encode('ascii') for length in lengths)
+                       + b'Connection: close\r\n\r\n' + body)
+                response = raw_response(raw)
+                receipts = []
+                capture = collect_http(['Q1'], transport=FakeTransport(response), on_headers=receipts.append)
+                self.assertFalse(capture.complete)
+                self.assertIn('Content-Length', capture.error)
+                self.assertEqual(capture.encoded, body)
+                self.assertIsNone(capture.body)
+                joined = ', '.join(str(length) for length in lengths)
+                self.assertEqual(capture.headers['content-length'], joined)
+                self.assertEqual(receipts[0]['headers']['content-length'], joined)
+                self.assertIsNotNone(capture.headers_received_at)
+
+    def test_duplicate_content_encoding_is_unresolved_with_original_headers(self):
+        body = gzip.compress(b'{}')
+        raw = (b'HTTP/1.1 200 OK\r\nContent-Encoding: identity\r\nContent-Encoding: gzip\r\n'
+               + f'Content-Length: {len(body)}\r\n\r\n'.encode('ascii') + body)
+        capture = collect_http(['Q1'], transport=FakeTransport(raw_response(raw)))
+        self.assertFalse(capture.complete)
+        self.assertIn('encoding', capture.error)
+        self.assertEqual(capture.encoded, body)
+        self.assertEqual(capture.headers['content-encoding'], 'identity, gzip')
+        self.assertIsNone(capture.body)
+
+    def test_negative_content_length_retains_bytes_but_cannot_complete(self):
+        capture = collect_http(['Q1'], transport=FakeTransport(raw_response(
+            b'HTTP/1.1 200 OK\r\nContent-Length: -1\r\n\r\n{}',
+        )))
+        self.assertFalse(capture.complete)
+        self.assertIn('Content-Length', capture.error)
+        self.assertEqual(capture.encoded, b'{}')
+        self.assertEqual(capture.headers['content-length'], '-1')
+
     def test_caller_owned_capture_directory_retains_timeout_evidence(self):
         with TemporaryDirectory() as directory:
             capture_dir = Path(directory) / 'capture'
@@ -283,3 +349,13 @@ def complete_worker(qids, options, folder):
         'headers_received_at': '2026-11-02T12:00:01Z',
         'received_at': '2026-11-02T12:00:02Z', 'interrupted': False,
     }), encoding='utf-8')
+
+
+def raw_response(raw):
+    class Socket:
+        def makefile(self, mode):
+            return BytesIO(raw)
+
+    response = HTTPResponse(Socket())
+    response.begin()
+    return response
