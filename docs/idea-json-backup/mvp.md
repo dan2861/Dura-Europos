@@ -1,6 +1,6 @@
 # IDEA JSON backup: first MVP
 
-Delivery direction requested by Danu on 2026-10-28: start with an MVP. The full [Plan](plan.md) is approved as the roadmap; this short document defines the first deliverable. Danu selected guided execution: Danu writes code/tests and runs commands, with the assistant explaining one TDD increment at a time. On 2026-11-02 Danu explicitly requested applying and committing the proposed first RED increment. The assistant added the stub and test and observed the expected failure: “Original response must be saved”. No preservation implementation has been added yet.
+Delivery direction requested by Danu on 2026-10-28: start with an MVP. The full [Plan](plan.md) is approved as the roadmap; this short document defines the first deliverable. Danu selected guided execution: Danu writes code/tests and runs commands, with the assistant explaining one TDD increment at a time. On 2026-11-02 Danu explicitly requested applying and committing the proposed first RED increment. The assistant added the stub and test and observed the expected failure: “Original response must be saved”. At Danu’s subsequent explicit request on the same date, the assistant applied the minimal preservation implementation and observed one passing focused offline test. Entity identity validation is the next guided TDD increment; this is not a completed MVP.
 
 ## Small working slice
 
