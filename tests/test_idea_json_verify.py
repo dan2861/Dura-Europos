@@ -1,9 +1,11 @@
 """Verifier fixtures are constructed independently of preservation code."""
 import hashlib
+import gzip
 import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from urllib.parse import urlencode
 
 from scripts.idea_json_backup.verify import verify_run
 
@@ -39,6 +41,39 @@ class VerifyTests(unittest.TestCase):
 
     def save_manifest(self, root, manifest):
         (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    def make_receipt(self, root, manifest, *, compressed=False, kind="live"):
+        source = (root / "source.json").read_bytes()
+        encoded = gzip.compress(source, mtime=0) if compressed else source
+        request = {
+            "method": "GET",
+            "url": "https://www.wikidata.org/w/api.php?" + urlencode({
+                "action": "wbgetentities", "ids": "Q1", "format": "json",
+                "formatversion": "2", "redirects": "no", "maxlag": "5"}),
+            "headers": {"Accept": "application/json", "Accept-Encoding": "gzip, identity",
+                        "User-Agent": "IDEA-JSON-Backup/0.1.0 (https://github.com/dan2861/Dura-Europos)"},
+            "timeout_seconds": 60,
+        }
+        receipt = {
+            "status": 200, "headers": {"content-length": str(len(encoded)),
+                                      "content-encoding": "gzip" if compressed else "identity"},
+            "complete": True, "error": None, "interrupted": False,
+            "started_at": "2026-11-02T12:00:00Z",
+            "headers_received_at": "2026-11-02T12:00:01Z",
+            "received_at": "2026-11-02T12:00:02Z", "encoded_path": "encoded.body",
+        }
+        (root / "encoded.body").write_bytes(encoded)
+        manifest["provenance"].update(kind=kind, retrieved_at=(
+            receipt["received_at"] if kind == "live" else None))
+        self.save_receipt(root, manifest, request, receipt)
+        return request, receipt
+
+    def save_receipt(self, root, manifest, request, receipt):
+        (root / "request.json").write_text(json.dumps(request), encoding="utf-8")
+        (root / "transport.json").write_text(json.dumps(receipt), encoding="utf-8")
+        manifest["evidence"] = [self.descriptor(root, name) for name in
+                                ("request.json", "transport.json", "encoded.body")]
+        self.save_manifest(root, manifest)
 
     def test_verifies_without_mutation(self):
         with TemporaryDirectory() as directory:
@@ -131,3 +166,71 @@ class VerifyTests(unittest.TestCase):
             self.assertEqual(verify_run(root)["status"], "passed")
             (root / "encoded.body").write_bytes(b'changed')
             self.assertEqual(verify_run(root)["status"], "failed")
+
+    def test_live_provenance_requires_protocol_receipts(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = self.make_run(root)
+            (root / "arbitrary.body").write_bytes(b'unrelated')
+            manifest["evidence"] = [self.descriptor(root, "arbitrary.body")]
+            manifest["provenance"].update(kind="live", retrieved_at="2026-11-02T12:00:02Z")
+            self.save_manifest(root, manifest)
+            self.assertEqual(verify_run(root)["status"], "failed")
+
+    def test_independent_identity_and_gzip_receipts_pass(self):
+        for compressed, kind in ((False, "live"), (True, "live"), (True, "synthetic")):
+            with self.subTest(compressed=compressed, kind=kind), TemporaryDirectory() as directory:
+                root = Path(directory)
+                manifest = self.make_run(root)
+                self.make_receipt(root, manifest, compressed=compressed, kind=kind)
+                self.assertEqual(verify_run(root), {"status": "passed", "findings": []})
+
+    def test_shortened_deadline_is_valid_despite_wall_clock_span(self):
+        # The runtime supervisor uses monotonic time; wall clocks can adjust.
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = self.make_run(root)
+            request, receipt = self.make_receipt(root, manifest)
+            request["timeout_seconds"] = 0.5
+            self.save_receipt(root, manifest, request, receipt)
+            self.assertEqual(verify_run(root), {"status": "passed", "findings": []})
+
+    def test_tampered_receipt_fails_after_recomputed_hashes(self):
+        changes = (
+            lambda q, r: q.update(method="POST"),
+            lambda q, r: q.update(url=q["url"].replace("www.wikidata.org", "example.org")),
+            lambda q, r: q.update(url=q["url"].replace("ids=Q1", "ids=Q2")),
+            lambda q, r: q.update(url=q["url"] + "&props=claims"),
+            lambda q, r: q.update(timeout_seconds=True),
+            lambda q, r: q.update(timeout_seconds=61),
+            lambda q, r: q["headers"].update({"User-Agent": ""}),
+            lambda q, r: r.update(status=503),
+            lambda q, r: r.update(complete=False),
+            lambda q, r: r.update(error="interrupted"),
+            lambda q, r: r.update(interrupted=True),
+            lambda q, r: r.update(received_at="2026-11-02T11:59:59Z"),
+            lambda q, r: r.update(received_at="2026-11-02T12:00:03Z"),
+            lambda q, r: r.update(headers_received_at=None),
+            lambda q, r: r.update(encoded_path="source.json"),
+            lambda q, r: r["headers"].update({"content-length": "1"}),
+            lambda q, r: r["headers"].update({"content-encoding": "br"}),
+        )
+        for index, change in enumerate(changes):
+            with self.subTest(index=index), TemporaryDirectory() as directory:
+                root = Path(directory)
+                manifest = self.make_run(root)
+                request, receipt = self.make_receipt(root, manifest)
+                change(request, receipt)
+                self.save_receipt(root, manifest, request, receipt)
+                self.assertEqual(verify_run(root)["status"], "failed")
+
+    def test_receipt_encoded_body_must_decode_to_source(self):
+        for compressed, replacement in ((False, b'changed'), (True, b'not gzip')):
+            with self.subTest(compressed=compressed), TemporaryDirectory() as directory:
+                root = Path(directory)
+                manifest = self.make_run(root)
+                request, receipt = self.make_receipt(root, manifest, compressed=compressed)
+                (root / "encoded.body").write_bytes(replacement)
+                receipt["headers"]["content-length"] = str(len(replacement))
+                self.save_receipt(root, manifest, request, receipt)
+                self.assertEqual(verify_run(root)["status"], "failed")

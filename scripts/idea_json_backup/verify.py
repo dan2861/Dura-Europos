@@ -1,9 +1,12 @@
 """Read-only verification of the MVP's public files, independent of extraction."""
 import hashlib
+import gzip
 import re
 import stat
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path, PurePosixPath
+from urllib.parse import parse_qsl, urlsplit
 
 from scripts.sample_backup.jsoncodec import Number, loads
 
@@ -62,6 +65,66 @@ def _regular_path(root, name):
     return path
 
 
+def _protocol_receipts(qids, provenance, evidence, source_body):
+    required = {"request.json", "transport.json", "encoded.body"}
+    protocol_present = bool({"request.json", "transport.json"} & evidence.keys())
+    if not protocol_present and provenance["kind"] != "live":
+        return
+    _require(required <= evidence.keys(), "transport protocol evidence is missing")
+    request = loads(evidence["request.json"])
+    receipt = loads(evidence["transport.json"])
+    _require(isinstance(request, dict) and isinstance(receipt, dict),
+             "invalid request/transport receipt")
+    _require(request.get("method") == "GET", "request must use GET")
+    url = request.get("url")
+    _require(isinstance(url, str), "request URL is missing")
+    parsed = urlsplit(url)
+    _require((parsed.scheme, parsed.netloc, parsed.path, parsed.fragment) ==
+             ("https", "www.wikidata.org", "/w/api.php", ""), "wrong request endpoint")
+    parameters = parse_qsl(parsed.query, keep_blank_values=True, strict_parsing=True)
+    expected = {"action": "wbgetentities", "ids": "|".join(qids), "format": "json",
+                "formatversion": "2", "redirects": "no", "maxlag": "5"}
+    _require(len(parameters) == len(expected) and dict(parameters) == expected,
+             "request parameters differ from the frozen batch contract")
+    headers = request.get("headers")
+    _require(isinstance(headers, dict) and set(headers) ==
+             {"Accept", "Accept-Encoding", "User-Agent"}
+             and headers["Accept"] == "application/json"
+             and headers["Accept-Encoding"] == "gzip, identity"
+             and isinstance(headers["User-Agent"], str) and headers["User-Agent"].strip()
+             and not any(c in headers["User-Agent"] for c in "\r\n"),
+             "invalid request identification/headers")
+    timeout = request.get("timeout_seconds")
+    _require(isinstance(timeout, Number), "request deadline must be numeric")
+    timeout = Decimal(timeout.token)
+    _require(timeout.is_finite() and 0 < timeout <= 60, "invalid request deadline")
+    _require(_same(receipt.get("status"), Number("200"))
+             and receipt.get("complete") is True and receipt.get("error") is None
+             and receipt.get("interrupted") is False
+             and receipt.get("encoded_path") == "encoded.body", "unsuccessful transport receipt")
+    times = [receipt.get(name) for name in
+             ("started_at", "headers_received_at", "received_at")]
+    _require(all(_utc(value) for value in times), "invalid transport timestamps")
+    started, headers_at, received = [datetime.fromisoformat(value.replace("Z", "+00:00"))
+                                    for value in times]
+    _require(started <= headers_at <= received, "transport timestamps are out of order")
+    if provenance["kind"] == "live":
+        _require(provenance["retrieved_at"] == times[2], "live retrieval time differs from receipt")
+    headers = receipt.get("headers")
+    allowed = {"content-length", "content-type", "content-encoding", "retry-after", "location"}
+    _require(isinstance(headers, dict) and set(headers) <= allowed
+             and all(isinstance(value, str) for value in headers.values()),
+             "invalid received headers")
+    encoded = evidence["encoded.body"]
+    length = headers.get("content-length")
+    _require(length is None or (re.fullmatch(r"[0-9]+", length)
+                               and int(length) == len(encoded)), "transport framing length mismatch")
+    encoding = headers.get("content-encoding", "identity").strip().lower()
+    _require(encoding in ("identity", "gzip"), "unsupported transport content encoding")
+    decoded = gzip.decompress(encoded) if encoding == "gzip" else encoded
+    _require(decoded == source_body, "encoded transport body differs from decoded source")
+
+
 def _verify(root):
     _require(root.is_dir() and not root.is_symlink(), "invalid run directory")
     manifest = loads(_regular_path(root, "manifest.json").read_bytes())
@@ -101,7 +164,8 @@ def _verify(root):
                  and hashlib.sha256(body).hexdigest() == digest, f"checksum mismatch: {name}")
         return body
 
-    source = loads(file_bytes(manifest.get("source"), "source.json"))
+    source_body = file_bytes(manifest.get("source"), "source.json")
+    source = loads(source_body)
     _require(isinstance(source, dict) and _same(source.get("success"), Number("1"))
              and not any(key in source for key in ("error", "warnings", "redirects")),
              "source response is not usable")
@@ -131,10 +195,10 @@ def _verify(root):
 
     evidence = manifest.get("evidence")
     _require(isinstance(evidence, list), "invalid evidence inventory")
-    for descriptor in evidence:
-        file_bytes(descriptor)
-    if provenance["kind"] == "live":
-        _require(bool(evidence), "live provenance lacks transport evidence")
+    evidence_bodies = {descriptor.get("path"): file_bytes(descriptor)
+                       for descriptor in evidence if isinstance(descriptor, dict)}
+    _require(len(evidence_bodies) == len(evidence), "invalid evidence descriptors")
+    _protocol_receipts(qids, provenance, evidence_bodies, source_body)
 
     actual = set()
     for path in root.rglob("*"):
@@ -150,6 +214,6 @@ def verify_run(directory):
     """Return findings without fetching, repairing, or changing any file."""
     try:
         _verify(Path(directory))
-    except (OSError, ValueError, TypeError, KeyError, RecursionError) as exc:
+    except (OSError, ValueError, TypeError, KeyError, RecursionError, ArithmeticError) as exc:
         return {"status": "failed", "findings": [f"{type(exc).__name__}: {exc}"]}
     return {"status": "passed", "findings": []}
