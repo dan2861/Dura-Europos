@@ -1,6 +1,6 @@
 # IDEA JSON backup: brief
 
-Started: 2026-10-28. Status: [Spec](design.md) and [Plan](plan.md) approved by Danu on 2026-10-28, with [MVP-first delivery](mvp.md). Danu selected guided implementation: Danu edits code/tests and runs commands with the assistant's step-by-step guidance. At Danu’s explicit request on 2026-11-02, the assistant added the first MVP stub/test and ran the focused offline check: one expected failure (“Original response must be saved”). At Danu’s subsequent explicit request, the minimal implementation was applied and the focused test passed (one test). Identity validation subsequently passed, and an omitted-entity increment was completed RED–GREEN at Danu’s explicit request (three focused tests pass). Unavailable-entity stubs subsequently ran RED–GREEN (four focused tests pass); their error is missing_or_redirect and source bytes remain intact. Entity type validation is next; no live execution has started.
+Started: 2026-10-28. Status: [Spec](design.md) and [Plan](plan.md) approved; the first [MVP](mvp.md) was completed and separately reviewed on 2026-11-02. Danu authorized automatic offline TDD and local commits for this slice. All 105 tests pass (54 MVP, 51 historical). See [runbook](mvp-runbook.md) and [increment log](implementation-log.md). No live execution has started.
 
 ## Central question
 
@@ -33,7 +33,7 @@ Approved boundary: current structured item records, without media downloads, ful
 
 ## Questions to resolve
 
-1. Continue the [first MVP](mvp.md) in Danu’s selected guided mode: the first preservation test has passed after the minimal implementation; identity-mismatch and omitted-entity tests also now pass. Unavailable-entity stub handling also passes. Next explain a failing test requiring type=item, followed by the minimal implementation. Continue with small TDD increments and an MVP review before expansion. Live execution remains separate.
+1. The offline MVP and its reviews are complete. Review the [runbook](mvp-runbook.md) before deciding whether to request a small live pilot or a later production increment. Neither follows automatically from prototype completion.
 2. Finalize archive format/part limits and actual Yale retention/upload handling through a separately requested draft test. The exact destination, depositor access and required metadata remain to be established before upload.
 3. The proposed API route needs a separately requested pilot and current access-guidance check before full collection; no endpoint behavior, performance or service endorsement is assumed from the approximately 33,000 estimate.
 
@@ -45,7 +45,7 @@ Approved boundary: current structured item records, without media downloads, ful
 | Research | Check acquisition/deposit options and existing reusable code against the new scale | [research.md](research.md), initial findings recorded; empirical checks remain pending |
 | Specification | Agree outputs, metadata, exception handling and completion criteria | [design.md](design.md), approved 2026-10-28 |
 | Plan | Define implementation increments, tests, milestone reviews and execution steps | [plan.md](plan.md) and [record layouts](record-layouts.md), approved as roadmap with MVP-first delivery |
-| Implementation | Build and test from the approved specification and plan | Guided mode selected; first [MVP](mvp.md) stub/test applied at explicit request; Preservation, identity mismatch, omitted entity and unavailable stub covered on 2026-11-02 (four focused tests pass); entity type validation next |
+| Implementation | Build and test from the approved specification and plan | First MVP complete and reviewed; 54 MVP tests pass. Production expansion remains deferred |
 
 Do not carry the old sample schema forward automatically. Preserve the adopted incremental TDD, separate milestone reviews and final integrated review when implementation is requested. Data collection and deposit remain explicit later execution steps.
 
@@ -53,7 +53,7 @@ Do not carry the old sample schema forward automatically. Preserve the adopted i
 
 Use the existing Dura-Europos repository. This is a new task directory, not a new repository. The directory is under docs/idea-json-backup/ so the new brief is eligible for normal Git tracking under the current ignore rules, which exclude docs/tasks/. No ignore rule was changed.
 
-Only planning documentation and the project continuity summary have been edited for this workstream. Research inspected current official documentation, existing code and saved sample file sizes read-only. No exporter or tests were run, no new entity data was retrieved, no Dataverse upload/publication occurred, and no Git mutation or external edit was performed.
+The MVP code, tests, runbook and local commits are complete. Reviews and tests used invented responses, injected transports/workers and existing local regression fixtures. No exporter was run against a live service, no new entity data was retrieved, no Dataverse upload/publication occurred, and no external edit or push was performed.
 
 ## Existing context
 

@@ -1,5 +1,6 @@
 """One-batch orchestration using invented captures only."""
 import gzip
+from functools import partial
 import json
 import unittest
 from pathlib import Path
@@ -7,7 +8,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import Mock
 
 from scripts.idea_json_backup.collector import collect_batch
-from scripts.idea_json_backup.transport import Capture
+from scripts.idea_json_backup.transport import Capture, capture_batch, network_worker
 from scripts.idea_json_backup.verify import verify_run
 
 BODY = (b'{"success":1,"entities":{"Q1":{"id":"Q1","type":"item",'
@@ -22,7 +23,43 @@ def captured(body=BODY, *, status=200, complete=True, error=None, compressed=Fal
                    "2026-11-02T12:00:02Z" if complete else None)
 
 
+def synthetic_worker(qids, options, directory):
+    """Exercise the real worker/spool pipeline with an invented HTTP response."""
+    from unittest.mock import patch
+
+    class Response:
+        status = 200
+
+        def __init__(self):
+            self.body = gzip.compress(BODY, mtime=0)
+            self.headers = {"Content-Length": str(len(self.body)), "Content-Encoding": "gzip"}
+
+        def read(self, size):
+            value, self.body = self.body, b""
+            return value
+
+        def close(self):
+            pass
+
+    class Transport:
+        def open(self, url, headers, timeout):
+            return Response()
+
+    with patch("scripts.idea_json_backup.transport.HTTPTransport", return_value=Transport()):
+        network_worker(qids, options, directory)
+
+
 class CollectionTests(unittest.TestCase):
+    def test_spawned_synthetic_worker_integrates_with_independent_verifier(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / "run"
+            collect_batch(["Q1"], root, capture=partial(capture_batch, worker=synthetic_worker),
+                          provenance_kind="synthetic", description="Invented spawned worker", timeout_seconds=2)
+            self.assertEqual(verify_run(root), {"status": "passed", "findings": []})
+            self.assertEqual((root / "source.json").read_bytes(), BODY)
+            self.assertTrue((root / "capture/receipt.json").is_file())
+            self.assertTrue((root / "capture/result.json").is_file())
+
     def test_one_capture_is_preserved_with_request_and_encoded_evidence(self):
         capture = Mock(return_value=captured(compressed=True))
         with TemporaryDirectory() as directory:

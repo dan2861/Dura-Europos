@@ -1,16 +1,16 @@
 # IDEA JSON backup: implementation plan
 
-Drafted: 2026-10-28. **Approved by Danu on 2026-10-28, with the direction to start with an MVP.** Danu selected guided execution: Danu edits code/tests and runs commands, with the assistant explaining each TDD increment.
+Drafted: 2026-10-28. **Approved by Danu on 2026-10-28, with MVP-first delivery.** On 2026-11-02 Danu authorized automatic offline TDD/local commits until the MVP was complete. That slice is now implemented and reviewed; see [runbook](mvp-runbook.md) and [increment log](implementation-log.md). The production roadmap below remains deferred.
 Authority: [Spec](design.md), explicitly approved by Danu on 2026-10-28.
 Companion: [record layouts](record-layouts.md), part of this Plan's review.
 
-**Current delivery order:** implement and review the [small MVP](mvp.md) first. The detailed modules/schemas/milestones below are the production roadmap, not a request to build every component before showing a working result. The MVP preserves the core source/item correctness rules but is explicitly a prototype; full discovery, SQLite recovery, large-scale collection and deposit features follow in later increments. Its first preservation test supersedes the original full-discovery-first order below. Danu performs the application/test edits and commands with step-by-step guidance; roadmap approval does not authorize live execution.
+**Current delivery order:** the [small MVP](mvp.md) is complete after separate preservation/transport reviews and a final integrated review. The detailed modules/schemas/milestones below are the production roadmap. Full discovery, SQLite recovery, large-scale collection and deposit features require later requested increments; they are not part of the completed prototype.
 
 ## 1. Outcome and execution boundary
 
 Implement a resumable JSON-only collector, an independent offline verifier, archive packaging and offline verification of downloaded deposit files. Preserve the frozen population, original response evidence and complete extracted item objects. Keep the historical sample exporter and its format intact.
 
-Danu approved the roadmap, requested MVP-first delivery and selected guided execution. At Danu’s explicit request on 2026-11-02, the assistant added the first MVP stub/test and observed one expected offline failure (“Original response must be saved”). At Danu’s subsequent explicit request, the assistant applied the minimal implementation and observed one passing focused offline test. Identity validation subsequently passed and was committed as `0aef380`; at Danu’s explicit request, the next omitted-entity increment was completed RED–GREEN (three focused tests pass). Unavailable-entity stub handling subsequently ran RED–GREEN (four focused tests pass), retaining source bytes and reporting missing_or_redirect without writing an item file. Entity type validation is next; no discovery, pilot, full collection, upload or publication has started. The command names below are planned interfaces, not existing commands or actions performed. Let the user (Danu) execute operational commands unless explicitly requesting execution.
+Danu approved the roadmap and requested MVP-first delivery. After initially choosing guided work, Danu explicitly authorized the assistant to finish the MVP automatically using RED–GREEN tests and a commit per increment. Final validation passed 105 offline tests (54 MVP, 51 historical sample). No discovery, pilot, full collection, upload or publication has started. Production command names below remain planned interfaces; the implemented prototype is python -m scripts.idea_json_backup. Operational collection commands still require an explicit request.
 
 Remain in the existing repository. Use new code/tests/task documents; do not move old evidence, change .gitignore, stage, commit or push as part of Plan preparation. The existing .gitignore/cache modifications are pre-existing work, not this Plan's output.
 
