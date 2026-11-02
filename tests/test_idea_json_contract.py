@@ -19,6 +19,26 @@ def response(entity):
 
 
 class ContractTests(unittest.TestCase):
+    def test_rejects_invalid_scope_before_creating_output(self):
+        for qids in ([], ["Q1", "Q1"], ["q1"], ["Q01"], ["../Q1"],
+                     [f"Q{i}" for i in range(1, 52)]):
+            with self.subTest(qids=qids), TemporaryDirectory() as directory:
+                output = Path(directory) / "run"
+                with self.assertRaisesRegex(ValueError, "QID"):
+                    preserve_batch(response(item()), qids, output)
+                self.assertFalse(output.exists())
+
+    def test_requires_clean_success_wrapper_and_expected_entity_keys(self):
+        valid = {"success": 1, "entities": {"Q1": item()}}
+        cases = [[], {"entities": valid["entities"]}]
+        cases += [dict(valid, success=value) for value in (True, "1", 1.0, 0)]
+        cases += [dict(valid, **{key: {"code": "maxlag"}}) for key in ("error", "warnings")]
+        cases += [dict(valid, entities=[]),
+                  dict(valid, entities={"Q1": item(), "Q2": item("Q2")})]
+        for value in cases:
+            with self.subTest(value=value):
+                self.assert_rejected(json.dumps(value).encode(), "response")
+
     def assert_rejected(self, body, message):
         with TemporaryDirectory() as directory:
             output = Path(directory) / "run"

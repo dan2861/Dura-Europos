@@ -6,6 +6,11 @@ from scripts.sample_backup.jsoncodec import Number, dumps, loads
 
 
 def preserve_batch(response_body, requested_qids, output_dir):
+    if (not isinstance(requested_qids, (list, tuple)) or not 1 <= len(requested_qids) <= 50
+            or any(not isinstance(qid, str) or not re.fullmatch(r"Q[1-9][0-9]*", qid)
+                   for qid in requested_qids)
+            or len(set(requested_qids)) != len(requested_qids)):
+        raise ValueError("Expected 1–50 distinct canonical QIDs")
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True)
 
@@ -14,6 +19,12 @@ def preserve_batch(response_body, requested_qids, output_dir):
     response = loads(response_body)
     items_dir = output_dir / "items"
     items_dir.mkdir()
+    if (not isinstance(response, dict) or set(response) != {"success", "entities"}
+            or not isinstance(response.get("success"), Number)
+            or response["success"].token != "1"
+            or not isinstance(response.get("entities"), dict)
+            or set(response["entities"]) - set(requested_qids)):
+        raise ValueError("Unusable response: expected clean success and requested entity keys")
 
     for qid in requested_qids:
         if qid not in response["entities"]:
