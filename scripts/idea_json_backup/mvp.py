@@ -3,10 +3,11 @@ from .contract import entities_from_response, require_entity, validate_provenanc
 from .files import Run
 
 
-def _extract(run, body):
+def _extract(run, body, *, source_saved=False):
     current = None
     try:
-        run.source(body)
+        if not source_saved:
+            run.source(body)
         entities = entities_from_response(body, run.manifest["requested_qids"])
         for current in run.manifest["items"]:
             run.accept(current, require_entity(entities, current["qid"]))
