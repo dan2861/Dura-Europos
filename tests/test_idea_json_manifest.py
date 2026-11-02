@@ -7,6 +7,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from scripts.idea_json_backup.mvp import preserve_batch
+from scripts.idea_json_backup.files import Run
 from scripts.idea_json_backup.verify import verify_run
 
 
@@ -52,3 +53,35 @@ class ManifestTests(unittest.TestCase):
                 preserve_batch(BODY, ["Q1"], root, provenance=dict(
                     SYNTHETIC, retrieved_at="2026-11-02T12:00:00Z"))
             self.assertFalse(root.exists())
+
+    def test_interrupt_preserves_saved_item_and_unfinished_scope(self):
+        value = json.loads(BODY)
+        value["entities"]["Q2"] = dict(value["entities"]["Q1"], id="Q2")
+        body = json.dumps(value).encode()
+        original = Run.accept
+
+        def interrupt_second(run, entry, entity):
+            if entry["qid"] == "Q2":
+                raise KeyboardInterrupt("invented interruption")
+            return original(run, entry, entity)
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / "run"
+            with patch.object(Run, "accept", interrupt_second), self.assertRaises(KeyboardInterrupt):
+                preserve_batch(body, ["Q1", "Q2"], root, provenance=SYNTHETIC)
+            manifest = json.loads((root / "manifest.json").read_bytes())
+            self.assertEqual(manifest["status"], "incomplete")
+            self.assertEqual([entry["status"] for entry in manifest["items"]], ["saved", "unresolved"])
+            self.assertTrue((root / "items/Q1.json").is_file())
+            self.assertFalse((root / "items/Q2.json").exists())
+            self.assertEqual((root / "source.json").read_bytes(), body)
+            self.assertEqual(verify_run(root)["status"], "failed")
+
+    def test_fresh_run_never_overwrites_existing_result(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / "run"
+            preserve_batch(BODY, ["Q1"], root, provenance=SYNTHETIC)
+            before = {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+            with self.assertRaises(FileExistsError):
+                preserve_batch(b"different", ["Q1"], root, provenance=SYNTHETIC)
+            self.assertEqual(before, {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()})
