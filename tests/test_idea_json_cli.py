@@ -14,6 +14,19 @@ BODY = (b'{"success":1,"entities":{"Q1":{"id":"Q1","type":"item",'
 
 
 class CommandTests(unittest.TestCase):
+    def test_non_line_separator_is_not_silently_removed_from_qid(self):
+        for value in ("Q1\v", "Q1\u2028"):
+            with self.subTest(value=value), TemporaryDirectory() as directory:
+                base = Path(directory)
+                (base / "qids.txt").write_text(value)
+                (base / "response.json").write_bytes(BODY)
+                code, report = self.invoke([
+                    "preserve", "--qids", str(base / "qids.txt"),
+                    "--response", str(base / "response.json"), "--output", str(base / "run"),
+                    "--kind", "synthetic", "--description", "Invented invalid scope"])
+                self.assertEqual(code, 1)
+                self.assertFalse((base / "run").exists())
+
     def invoke(self, args):
         output = io.StringIO()
         with contextlib.redirect_stdout(output):

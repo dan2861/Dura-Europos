@@ -18,3 +18,4 @@ Each checkpoint records the newly observed failure before implementation. Reused
 | Receipt verification review fix | Arbitrary live evidence and nineteen receipt/body tamper examples were accepted | Twelve verifier tests pass; live/synthetic transport receipts independently checked against request, encoded bytes and decoded source |
 | Usable prototype commands | New command module absent (import failure) | Two offline CLI tests pass: saved/synthetic preservation + verification, and collect wiring with mocked capture only |
 | Transport review fixes | Duplicate framing headers and exited worker finishing after parent deadline were accepted | Twenty-one transport tests pass; duplicate headers retained/rejected and parent deadline rechecked after join |
+| Exact QID line boundaries | Vertical-tab and Unicode-line-separator suffixes were silently stripped and accepted | Three CLI tests pass; only ordinary file line terminators delimit QIDs |

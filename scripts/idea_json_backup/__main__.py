@@ -31,7 +31,8 @@ def main(argv=None):
         if args.command == "verify":
             report = verify_run(args.directory)
         else:
-            qids = args.qids.read_text(encoding="utf-8").splitlines()
+            with args.qids.open(encoding="utf-8", newline=None) as stream:
+                qids = [line.removesuffix("\n") for line in stream]
             if args.command == "preserve":
                 preserve_batch(args.response.read_bytes(), qids, args.output, provenance={
                     "kind": args.kind, "description": args.description, "retrieved_at": None})
