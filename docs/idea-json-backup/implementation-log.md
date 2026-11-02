@@ -7,3 +7,4 @@ Each checkpoint records the newly observed failure before implementation. Reused
 | Increment | RED observed | GREEN validation |
 | --- | --- | --- |
 | Item shape/type | Non-object values raised AttributeError; non-item types were accepted | Five focused preservation/contract tests pass |
+| Revision metadata | Eleven invalid revision/time examples were accepted | Two contract tests pass, including all metadata cases |

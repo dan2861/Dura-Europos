@@ -1,6 +1,8 @@
 from pathlib import Path
+from datetime import datetime
+import re
 
-from scripts.sample_backup.jsoncodec import dumps, loads
+from scripts.sample_backup.jsoncodec import Number, dumps, loads
 
 
 def preserve_batch(response_body, requested_qids, output_dir):
@@ -32,6 +34,18 @@ def preserve_batch(response_body, requested_qids, output_dir):
 
         if entity.get("type") != "item":
             raise ValueError(f"Requested {qid} must have type=item")
+
+        revision = entity.get("lastrevid")
+        if not isinstance(revision, Number) or not re.fullmatch(r"[1-9][0-9]*", revision.token):
+            raise ValueError(f"Requested {qid} has invalid revision metadata")
+        modified = entity.get("modified")
+        try:
+            if not isinstance(modified, str) or not re.fullmatch(
+                    r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?Z", modified):
+                raise ValueError("Expected UTC timestamp")
+            datetime.fromisoformat(modified.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError(f"Requested {qid} has invalid modified metadata") from exc
 
         (items_dir / f"{qid}.json").write_text(
             dumps(entity),
