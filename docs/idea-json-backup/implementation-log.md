@@ -11,3 +11,4 @@ Each checkpoint records the newly observed failure before implementation. Reused
 | One HTTP capture | New transport module absent (import failure) | Ten offline tests pass for request settings, gzip, framing, errors and redirects |
 | Scope and response preflight | Invalid lists created output; API/error/warning wrappers were accepted or raised wrong exceptions | Four contract tests pass; rejected responses retained, invalid scope creates no output |
 | Independent verifier | New verifier module absent (import failure) | Seven tests pass with independently built artifacts, including changed content with recomputed hashes, token/type changes and unsafe paths |
+| Prototype manifest | New provenance argument/manifest absent (three TypeErrors) | Synthetic complete and partial runs independently checked; all 33 MVP tests pass including number-token regression |
