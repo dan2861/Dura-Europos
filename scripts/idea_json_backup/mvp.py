@@ -14,6 +14,9 @@ def preserve_batch(response_body, requested_qids, output_dir):
     items_dir.mkdir()
 
     for qid in requested_qids:
+        if qid not in response["entities"]:
+            raise ValueError(f"Requested {qid} is missing from response entities")
+
         entity = response["entities"][qid]
         returned_qid = entity.get("id")
 

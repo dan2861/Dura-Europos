@@ -1,6 +1,6 @@
 # IDEA JSON backup: brief
 
-Started: 2026-10-28. Status: [Spec](design.md) and [Plan](plan.md) approved by Danu on 2026-10-28, with [MVP-first delivery](mvp.md). Danu selected guided implementation: Danu edits code/tests and runs commands with the assistant's step-by-step guidance. At Danu’s explicit request on 2026-11-02, the assistant added the first MVP stub/test and ran the focused offline check: one expected failure (“Original response must be saved”). At Danu’s subsequent explicit request, the minimal implementation was applied and the focused test passed (one test). Entity identity validation is next; no live execution has started.
+Started: 2026-10-28. Status: [Spec](design.md) and [Plan](plan.md) approved by Danu on 2026-10-28, with [MVP-first delivery](mvp.md). Danu selected guided implementation: Danu edits code/tests and runs commands with the assistant's step-by-step guidance. At Danu’s explicit request on 2026-11-02, the assistant added the first MVP stub/test and ran the focused offline check: one expected failure (“Original response must be saved”). At Danu’s subsequent explicit request, the minimal implementation was applied and the focused test passed (one test). Identity validation subsequently passed, and an omitted-entity increment was completed RED–GREEN at Danu’s explicit request (three focused tests pass). Unavailable-entity stubs are next; no live execution has started.
 
 ## Central question
 
@@ -33,7 +33,7 @@ Approved boundary: current structured item records, without media downloads, ful
 
 ## Questions to resolve
 
-1. Continue the [first MVP](mvp.md) in Danu’s selected guided mode: the first preservation test has passed after the minimal implementation; next explain a failing test for a returned entity ID that differs from the requested QID. Continue with small TDD increments and an MVP review before expansion. Live execution remains separate.
+1. Continue the [first MVP](mvp.md) in Danu’s selected guided mode: the first preservation test has passed after the minimal implementation; identity-mismatch and omitted-entity tests also now pass. Next explain a failing test for an unavailable-entity stub, followed by the minimal implementation. Continue with small TDD increments and an MVP review before expansion. Live execution remains separate.
 2. Finalize archive format/part limits and actual Yale retention/upload handling through a separately requested draft test. The exact destination, depositor access and required metadata remain to be established before upload.
 3. The proposed API route needs a separately requested pilot and current access-guidance check before full collection; no endpoint behavior, performance or service endorsement is assumed from the approximately 33,000 estimate.
 
@@ -45,7 +45,7 @@ Approved boundary: current structured item records, without media downloads, ful
 | Research | Check acquisition/deposit options and existing reusable code against the new scale | [research.md](research.md), initial findings recorded; empirical checks remain pending |
 | Specification | Agree outputs, metadata, exception handling and completion criteria | [design.md](design.md), approved 2026-10-28 |
 | Plan | Define implementation increments, tests, milestone reviews and execution steps | [plan.md](plan.md) and [record layouts](record-layouts.md), approved as roadmap with MVP-first delivery |
-| Implementation | Build and test from the approved specification and plan | Guided mode selected; first [MVP](mvp.md) stub/test applied at explicit request; RED then GREEN observed on 2026-11-02 (one focused test); entity identity validation next |
+| Implementation | Build and test from the approved specification and plan | Guided mode selected; first [MVP](mvp.md) stub/test applied at explicit request; Preservation, identity mismatch and omitted entity covered on 2026-11-02 (three focused tests pass); unavailable-entity stubs next |
 
 Do not carry the old sample schema forward automatically. Preserve the adopted incremental TDD, separate milestone reviews and final integrated review when implementation is requested. Data collection and deposit remain explicit later execution steps.
 

@@ -7,6 +7,25 @@ from scripts.idea_json_backup.mvp import preserve_batch
 
 
 class PreservationTests(unittest.TestCase):
+    def test_reports_omitted_requested_entity_and_retains_source(self):
+        # Invented response: the requested entity is absent.
+        body = b'{"success":1,"entities":{}}'
+
+        with TemporaryDirectory() as directory:
+            output = Path(directory) / "run"
+
+            with self.assertRaises(ValueError) as caught:
+                preserve_batch(body, ["Q1"], output)
+
+            message = str(caught.exception)
+            self.assertIn("Q1", message)
+            self.assertIn("missing", message.lower())
+            self.assertEqual(
+                (output / "source.json").read_bytes(),
+                body,
+            )
+            self.assertEqual(list((output / "items").iterdir()), [])
+
     def test_preserves_source_and_complete_entity(self):
         # Invented fixture, not retrieved Wikidata data.
         entity = {
