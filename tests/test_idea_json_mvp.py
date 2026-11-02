@@ -40,3 +40,37 @@ class PreservationTests(unittest.TestCase):
                 )
             )
             self.assertEqual(saved, entity)
+
+    def test_rejects_mismatched_entity_id_and_retains_source(self):
+        # Invented response: mapping key and entity ID disagree.
+        entity = {
+            "id": "Q2",
+            "type": "item",
+            "lastrevid": 7,
+            "modified": "2026-10-28T12:00:00Z",
+            "claims": {},
+        }
+        body = json.dumps({
+            "success": 1,
+            "entities": {"Q1": entity},
+        }).encode("utf-8")
+
+        with TemporaryDirectory() as directory:
+            output = Path(directory) / "run"
+
+            with self.assertRaises(ValueError) as caught:
+                preserve_batch(body, ["Q1"], output)
+
+            message = str(caught.exception)
+            self.assertIn("Q1", message)
+            self.assertIn("Q2", message)
+            self.assertEqual(
+                (output / "source.json").read_bytes(),
+                body,
+            )
+            self.assertFalse(
+                (output / "items" / "Q1.json").exists()
+            )
+            self.assertFalse(
+                (output / "items" / "Q2.json").exists()
+            )

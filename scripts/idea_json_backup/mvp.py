@@ -15,6 +15,13 @@ def preserve_batch(response_body, requested_qids, output_dir):
 
     for qid in requested_qids:
         entity = response["entities"][qid]
+        returned_qid = entity.get("id")
+
+        if returned_qid != qid:
+            raise ValueError(
+                f"Requested {qid}, but entity ID is {returned_qid!r}"
+            )
+
         (items_dir / f"{qid}.json").write_text(
             dumps(entity),
             encoding="utf-8",
