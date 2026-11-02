@@ -1,9 +1,16 @@
 """Offline transport tests: no public service is contacted."""
 import gzip
+import json
+import multiprocessing
+import os
+import time
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from urllib.parse import parse_qs, urlsplit
+from unittest.mock import patch
 
-from scripts.idea_json_backup.transport import collect_http, request_options
+from scripts.idea_json_backup.transport import capture_batch, collect_http, request_options
 
 
 class FakeResponse:
@@ -37,6 +44,105 @@ class FakeTransport:
 
 
 class BatchTransportTests(unittest.TestCase):
+    def test_caller_owned_capture_directory_retains_timeout_evidence(self):
+        with TemporaryDirectory() as directory:
+            capture_dir = Path(directory) / 'capture'
+            capture = capture_batch(['Q1'], timeout_seconds=0.7, worker=blocked_worker,
+                                    capture_directory=capture_dir)
+            self.assertIn('deadline', capture.error)
+            self.assertEqual((capture_dir / 'encoded.body').read_bytes(), b'already received')
+            self.assertEqual(json.loads((capture_dir / 'receipt.json').read_text())['headers'],
+                             {'retry-after': '20'})
+            with self.assertRaises(FileExistsError):
+                capture_batch(['Q1'], worker=complete_worker, capture_directory=capture_dir)
+
+    def test_response_close_failure_retains_captured_evidence(self):
+        class CloseFailure(FakeResponse):
+            def close(self):
+                raise OSError('close failed')
+
+        capture = collect_http(['Q1'], transport=FakeTransport(CloseFailure(b'{}')))
+        self.assertEqual(capture.encoded, b'{}')
+        self.assertIsNotNone(capture.error)
+        self.assertIn('close failed', capture.error)
+        self.assertFalse(capture.complete)
+
+    def test_supervised_worker_returns_complete_capture(self):
+        capture = capture_batch(['Q1'], timeout_seconds=2, worker=complete_worker)
+        self.assertTrue(capture.complete)
+        self.assertIsNone(capture.error)
+        self.assertEqual(capture.encoded, b'{}')
+        self.assertEqual(capture.body, b'{}')
+        self.assertEqual(capture.status, 200)
+
+    def test_absolute_deadline_terminates_worker_and_retains_evidence(self):
+        before_pids = {process.pid for process in multiprocessing.active_children()}
+        before = time.monotonic()
+        capture = capture_batch(['Q1'], timeout_seconds=0.7, worker=blocked_worker)
+        self.assertLess(time.monotonic() - before, 2)
+        self.assertFalse(capture.complete)
+        self.assertIn('deadline', capture.error)
+        self.assertEqual(capture.encoded, b'already received')
+        self.assertEqual(capture.headers['retry-after'], '20')
+        self.assertIsNotNone(capture.headers_received_at)
+        self.assertIsNone(capture.body)
+        self.assertEqual({process.pid for process in multiprocessing.active_children()}, before_pids)
+
+    def test_worker_exit_without_outcome_keeps_partial_capture(self):
+        capture = capture_batch(['Q1'], timeout_seconds=2, worker=unfinished_worker)
+        self.assertFalse(capture.complete)
+        self.assertIn('outcome', capture.error)
+        self.assertEqual(capture.encoded, b'already received')
+        self.assertEqual(capture.headers['retry-after'], '20')
+
+    def test_keyboard_interrupt_terminates_worker_and_keeps_partial_capture(self):
+        class InterruptProcess:
+            def __init__(self, *, target, args):
+                self.args = args
+                self.pid = None
+                self.alive = False
+                self.joins = 0
+
+            def start(self):
+                self.pid = 7
+                self.alive = True
+                unfinished_worker(*self.args)
+
+            def join(self, timeout=None):
+                self.joins += 1
+                if self.joins == 1:
+                    raise KeyboardInterrupt()
+
+            def is_alive(self):
+                return self.alive
+
+            def terminate(self):
+                self.alive = False
+
+            def kill(self):
+                self.alive = False
+
+        with patch('scripts.idea_json_backup.transport.multiprocessing.get_context') as context:
+            context.return_value.Process.side_effect = InterruptProcess
+            capture = capture_batch(['Q1'], timeout_seconds=1, worker=unfinished_worker)
+        self.assertTrue(capture.interrupted)
+        self.assertFalse(capture.complete)
+        self.assertIn('interrupted', capture.error)
+        self.assertEqual(capture.encoded, b'already received')
+
+    def test_http_client_has_no_automatic_redirects(self):
+        from scripts.idea_json_backup.transport import HTTPTransport, NoRedirect
+        with patch('scripts.idea_json_backup.transport.build_opener') as builder:
+            expected = FakeResponse()
+            builder.return_value.open.return_value = expected
+            options = request_options(['Q1'])
+            self.assertIs(HTTPTransport().open(options['url'], options['headers'], 5), expected)
+            request = builder.return_value.open.call_args.args[0]
+            self.assertEqual(request.get_method(), 'GET')
+            self.assertEqual(request.get_header('Accept'), 'application/json')
+            self.assertIsInstance(builder.call_args.args[0], NoRedirect)
+            self.assertIsNone(builder.call_args.args[0].redirect_request(None, None, 302, None, None, '/next'))
+
     def test_one_request_has_fixed_scope_and_identifies_operator(self):
         transport = FakeTransport(FakeResponse(b'{"success":1}'))
         capture = collect_http(['Q2', 'Q1'], transport=transport)
@@ -144,3 +250,36 @@ class BatchTransportTests(unittest.TestCase):
             with self.subTest(agent=agent):
                 with self.assertRaises(ValueError):
                     request_options(['Q1'], user_agent=agent)
+
+
+def unfinished_worker(qids, options, folder):
+    """Durable synthetic receipt/body; intentionally no outcome."""
+    path = Path(folder)
+    receipt = {'status': 200, 'headers': {'retry-after': '20'},
+               'started_at': '2026-11-02T12:00:00Z',
+               'headers_received_at': '2026-11-02T12:00:01Z'}
+    with (path / 'receipt.json').open('w', encoding='utf-8') as stream:
+        stream.write(json.dumps(receipt))
+        stream.flush()
+        os.fsync(stream.fileno())
+    with (path / 'encoded.body').open('wb') as stream:
+        stream.write(b'already received')
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
+def blocked_worker(qids, options, folder):
+    unfinished_worker(qids, options, folder)
+    time.sleep(10)
+
+
+def complete_worker(qids, options, folder):
+    path = Path(folder)
+    (path / 'encoded.body').write_bytes(b'{}')
+    (path / 'decoded.body').write_bytes(b'{}')
+    (path / 'result.json').write_text(json.dumps({
+        'status': 200, 'headers': {}, 'complete': True, 'error': None,
+        'started_at': '2026-11-02T12:00:00Z',
+        'headers_received_at': '2026-11-02T12:00:01Z',
+        'received_at': '2026-11-02T12:00:02Z', 'interrupted': False,
+    }), encoding='utf-8')
