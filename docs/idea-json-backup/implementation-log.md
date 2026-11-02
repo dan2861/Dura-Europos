@@ -8,3 +8,4 @@ Each checkpoint records the newly observed failure before implementation. Reused
 | --- | --- | --- |
 | Item shape/type | Non-object values raised AttributeError; non-item types were accepted | Five focused preservation/contract tests pass |
 | Revision metadata | Eleven invalid revision/time examples were accepted | Two contract tests pass, including all metadata cases |
+| One HTTP capture | New transport module absent (import failure) | Ten offline tests pass for request settings, gzip, framing, errors and redirects |
