@@ -3,6 +3,7 @@ import hashlib
 import gzip
 import re
 import stat
+import zlib
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path, PurePosixPath
@@ -121,7 +122,10 @@ def _protocol_receipts(qids, provenance, evidence, source_body):
                                and int(length) == len(encoded)), "transport framing length mismatch")
     encoding = headers.get("content-encoding", "identity").strip().lower()
     _require(encoding in ("identity", "gzip"), "unsupported transport content encoding")
-    decoded = gzip.decompress(encoded) if encoding == "gzip" else encoded
+    try:
+        decoded = gzip.decompress(encoded) if encoding == "gzip" else encoded
+    except (EOFError, gzip.BadGzipFile, zlib.error) as exc:
+        raise ValueError(f"undecodable gzip transport evidence: {exc}") from exc
     _require(decoded == source_body, "encoded transport body differs from decoded source")
 
 

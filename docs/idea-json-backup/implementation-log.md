@@ -19,3 +19,4 @@ Each checkpoint records the newly observed failure before implementation. Reused
 | Usable prototype commands | New command module absent (import failure) | Two offline CLI tests pass: saved/synthetic preservation + verification, and collect wiring with mocked capture only |
 | Transport review fixes | Duplicate framing headers and exited worker finishing after parent deadline were accepted | Twenty-one transport tests pass; duplicate headers retained/rejected and parent deadline rechecked after join |
 | Exact QID line boundaries | Vertical-tab and Unicode-line-separator suffixes were silently stripped and accepted | Three CLI tests pass; only ordinary file line terminators delimit QIDs |
+| Structured gzip verification failures | Truncated trailer raised EOFError; damaged deflate raised zlib.error after refreshed descriptors | Thirteen verifier tests pass; decoder errors return structured failed findings |

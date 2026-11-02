@@ -234,3 +234,22 @@ class VerifyTests(unittest.TestCase):
                 receipt["headers"]["content-length"] = str(len(replacement))
                 self.save_receipt(root, manifest, request, receipt)
                 self.assertEqual(verify_run(root)["status"], "failed")
+
+    def test_truncated_and_damaged_gzip_return_structured_findings(self):
+        for damage in ("truncated_trailer", "invalid_deflate_block"):
+            with self.subTest(damage=damage), TemporaryDirectory() as directory:
+                root = Path(directory)
+                manifest = self.make_run(root)
+                request, receipt = self.make_receipt(root, manifest, compressed=True)
+                encoded = (root / "encoded.body").read_bytes()
+                if damage == "truncated_trailer":
+                    encoded = encoded[:-4]
+                else:
+                    encoded = encoded[:10] + b'\xff' + encoded[11:]
+                (root / "encoded.body").write_bytes(encoded)
+                receipt["headers"]["content-length"] = str(len(encoded))
+                self.save_receipt(root, manifest, request, receipt)
+                result = verify_run(root)
+                self.assertEqual(result["status"], "failed")
+                self.assertTrue(result["findings"])
+                self.assertIn("gzip", " ".join(result["findings"]))
