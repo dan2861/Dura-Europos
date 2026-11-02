@@ -25,6 +25,9 @@ def preserve_batch(response_body, requested_qids, output_dir):
                 f"Requested {qid}, but entity ID is {returned_qid!r}"
             )
 
+        if "missing" in entity:
+            raise ValueError(f"Requested {qid} is unavailable: missing_or_redirect")
+
         (items_dir / f"{qid}.json").write_text(
             dumps(entity),
             encoding="utf-8",
