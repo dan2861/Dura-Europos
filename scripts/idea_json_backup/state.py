@@ -563,6 +563,34 @@ class RunState:
         self.set_run(phase="collected", finished_at=self.now())
         return self.snapshot()
 
+    def commit_finalization(self, target):
+        """Commit only prepared phase/report bookkeeping and clear its intent atomically."""
+        intent = self.get_internal("finalization")
+        if not isinstance(intent, dict):
+            raise ValueError("Missing finalization intent")
+        current = self.manifest
+        if current["phase"] not in ("collected", "finalized"):
+            raise ValueError("Finalization requires a collected run")
+        for key in MANIFEST_KEYS - {"phase", "collection_status", "verification_path"}:
+            if not codec.equal(target[key], current[key]):
+                raise ValueError("Finalization cannot change source/content metadata")
+        if (set(target) != MANIFEST_KEYS or target["verification_path"] != "verification.json"
+                or target["phase"] not in ("collected", "finalized")
+                or target["collection_status"] not in ("not_checked", "failed", "passed")
+                or (target["phase"] == "finalized") != (target["collection_status"] == "passed")):
+            raise ValueError("Invalid finalization target")
+        if current["phase"] == "finalized" and not codec.equal(current, target):
+            raise ValueError("Finalized metadata is immutable")
+        for name in ("manifest", "report"):
+            descriptor = intent[name]
+            relative = "manifest.json" if name == "manifest" else "verification.json"
+            body = self.path(relative).read_bytes()
+            if len(body) != descriptor["size_bytes"] or hashlib.sha256(body).hexdigest() != descriptor["sha256"]:
+                raise ValueError("Prepared finalization publication disagrees")
+        with self._transaction():
+            self._put_manifest(target)
+            self.db.execute("DELETE FROM internal WHERE key='finalization'")
+
     def _audit_journal(self):
         manifest = self.manifest
         if set(manifest) != MANIFEST_KEYS or manifest["format"] != "idea-json-backup" or manifest["format_version"] != "1.0.0":
