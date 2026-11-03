@@ -122,6 +122,78 @@ def with_retry(root, *, dispatch=8, status=503, retry_after=None, api_error=None
 
 
 class CollectionVerifierTests(unittest.TestCase):
+    def test_recovered_reservation_uses_recovery_time_without_inventing_finish(self):
+        for known, dispatched, expected in ((True, True, "passed"), (False, True, "passed"),
+                                            (None, False, "passed"), (None, True, "failed")):
+            with self.subTest(known=known, dispatched=dispatched), TemporaryDirectory() as directory:
+                root = Path(directory) / "run"
+                manifest, inventory, attempts = with_retry(root, dispatch=15)
+                prior = attempts[0]
+                old_path = prior["encoded"]["path"]
+                prior.update(finished_at=None, recovered_at=at(10), receipt_complete=None,
+                             response_received_at=None, response_elapsed_ms=None, headers_observed=known,
+                             encoded=None, decoded=None, outcome="interrupted", next_eligible_at=at(15),
+                             diagnostics=[{"role": "recovered_body", "file": store(root, old_path, b"busy", complete=None),
+                                           "explanation": "Receipt completion was not journaled"}],
+                             error={"stage": "recovery", "code": "interrupted", "message": "Recovered reservation", "retryable": True})
+                prior["item_results"][0].update(outcome="unknown", error=copy.deepcopy(prior["error"]))
+                if not dispatched:
+                    prior["dispatch_started_at"] = None
+                    manifest["started_at"] = attempts[1]["dispatch_started_at"]
+                if known is not True:
+                    prior.update(http=None, headers_received_at=None)
+                rewrite(root, manifest, inventory, attempts)
+                self.assertEqual(verify_collection(root)["status"], expected)
+
+    def test_attempt_outcome_and_error_coherence_cannot_hide_failures(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / "success-error"
+            manifest, inventory, attempts = fixture(root)
+            attempts[0]["error"] = {"stage": "saving", "code": "write_failed", "message": "disk failure", "retryable": False}
+            rewrite(root, manifest, inventory, attempts)
+            self.assertEqual(verify_collection(root)["status"], "failed")
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / "retry-error"
+            manifest, inventory, attempts = with_retry(root, dispatch=7)
+            attempts[0]["item_results"][0]["error"] = None
+            rewrite(root, manifest, inventory, attempts)
+            self.assertEqual(verify_collection(root)["status"], "failed")
+
+    def test_membership_is_derived_from_all_preserved_statement_ranks(self):
+        base = loads(ENTITY)["claims"]["P5008"][0]
+        other = copy.deepcopy(base)
+        other["rank"] = "preferred"
+        other["mainsnak"]["datavalue"]["value"]["id"] = "Q1"
+        for rows, expected in (([copy.deepcopy(base), other], "matches"),
+                               ([dict(copy.deepcopy(base), rank="deprecated")], "changed"),
+                               ([dict(copy.deepcopy(base), rank="preferred")], "matches"), ([], "changed")):
+            with self.subTest(expected=expected, rows=rows), TemporaryDirectory() as directory:
+                root = Path(directory) / "run"
+                manifest, inventory, attempts = fixture(root)
+                entity = loads(ENTITY)
+                entity["claims"]["P5008"] = rows
+                encoded = dumps({"success": 1, "entities": {"Q1": entity}}).encode()
+                descriptor = store(root, attempts[0]["decoded"]["path"], encoded, complete=True)
+                attempts[0].update(encoded=descriptor, decoded=dict(descriptor))
+                attempts[0]["http"]["headers"]["content-length"] = [str(len(encoded))]
+                inventory[0].update(membership_at_retrieval=expected, item=store(root, "items/Q1.json", dumps(entity).encode()))
+                rewrite(root, manifest, inventory, attempts)
+                self.assertEqual(verify_collection(root)["status"], "passed")
+
+    def test_changed_source_with_refreshed_descriptor_still_disagrees_with_item(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / "run"
+            manifest, inventory, attempts = fixture(root)
+            name = attempts[0]["decoded"]["path"]
+            original = (root / name).read_bytes()
+            changed = original.replace(b'"identifier":"0007"', b'"identifier":"0008"')
+            descriptor = store(root, name, changed, complete=True)
+            attempts[0].update(encoded=descriptor, decoded=dict(descriptor))
+            rewrite(root, manifest, inventory, attempts)
+            report = verify_collection(root)
+            self.assertEqual(report["status"], "failed")
+            self.assertEqual(next(check for check in report["checks"] if check["check_id"] == "source_content")["status"], "failed")
+
     def test_committed_complete_source_before_local_finish_is_unfinished(self):
         with TemporaryDirectory() as directory:
             root = Path(directory) / "run"

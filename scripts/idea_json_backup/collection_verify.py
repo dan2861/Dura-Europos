@@ -263,6 +263,18 @@ class Audit:
             _keys(row, {"qid", "outcome", "returned_qid", "error"}, "item result", "provenance")
             _require(row["qid"] == qid and row["outcome"] in ("accepted", "transient_failure", "review_required", "unknown"), "Invalid item result", "provenance")
             _error(row["error"])
+            _require(row["returned_qid"] is None or (isinstance(row["returned_qid"], str)
+                     and QID.fullmatch(row["returned_qid"])), "Invalid returned item ID", "provenance")
+            if row["outcome"] == "accepted":
+                _require(row["error"] is None and row["returned_qid"] == qid,
+                         "Accepted result claims an error or different ID", "provenance")
+            elif row["outcome"] in ("transient_failure", "review_required"):
+                _require(row["error"] is not None and row["error"]["retryable"] is
+                         (row["outcome"] == "transient_failure"),
+                         "Item outcome lacks its typed failure", "provenance")
+        if value["outcome"] == "succeeded":
+            _require(value["error"] is None and (finished is None or all(row["outcome"] == "accepted" for row in results)),
+                     "Successful attempt claims failure or unfinished items", "provenance")
         usable = value["outcome"] in ("succeeded", "mixed")
         if usable:
             _require(code == 200 and complete is True and decoded is not None and value["decoded"]["complete"] is True
@@ -296,12 +308,17 @@ class Audit:
             for qid in attempt["requested_qids"]:
                 used[qid] = used.get(qid, 0) + 1
             finished = _time(attempt["finished_at"], nullable=True)
-            if finished is None:
+            recovered_at = _time(attempt["recovered_at"], nullable=True)
+            recovered = finished is None and attempt["outcome"] == "interrupted" and recovered_at is not None
+            anchor = recovered_at if recovered else finished
+            if anchor is None:
                 _require(attempt["outcome"] == "reserved" or (not self.terminal and attempt["outcome"] in ("succeeded", "mixed")),
                          "Completed attempt lacks finish time", "provenance")
                 unfinished_attempt = self.unfinished = True
                 continue
-            global_gate = finished + timedelta(seconds=1)
+            _require(anchor >= _time(attempt["reserved_at"])
+                     and (dispatch is None or anchor >= dispatch), "Recovery precedes reservation/dispatch", "provenance")
+            global_gate = anchor + timedelta(seconds=1)
             headers = attempt["http"]["headers"] if attempt["http"] is not None else {}
             malformed = False
             for value in headers.get("retry-after", []):
@@ -333,11 +350,11 @@ class Audit:
                                   or (status == 200 and error["stage"] == "api"
                                       and attempt["api_error"] is not None
                                       and attempt["api_error"]["code"] == "maxlag")))
-                recovered = (error["stage"] == "recovery" and known_receipt
-                             and attempt["outcome"] == "interrupted" and attempt["recovered_at"] is not None)
-                _require(transient or recovered, "History retries a held or unknown failure", "provenance", qid=result["qid"])
+                known_recovery = (error["stage"] == "recovery" and (known_receipt or dispatch is None)
+                                  and attempt["outcome"] == "interrupted" and recovered_at is not None)
+                _require(transient or known_recovery, "History retries a held or unknown failure", "provenance", qid=result["qid"])
                 qid = result["qid"]
-                eligible[qid] = max(global_gate, finished + timedelta(seconds=5 if used[qid] == 1 else 10))
+                eligible[qid] = max(global_gate, anchor + timedelta(seconds=5 if used[qid] == 1 else 10))
             if attempt["next_eligible_at"] is not None:
                 bound = _time(attempt["next_eligible_at"])
                 _require(bound >= global_gate and all(bound >= eligible[qid]
