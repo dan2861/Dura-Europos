@@ -6,6 +6,8 @@ The saved production parent `backup/idea-selection-001` contains the frozen 33,7
 
 Checkpoint 2026-11-03: Danu reported Stop 1 creation and separate saved-selection verification passed with no findings, count 3. Read-only preflight confirmed the exact declared subset, unchanged copied parent evidence/descriptors and absent `backup/idea-pilot-run-001`. Current official access/module/etiquette/maxlag guidance has been rechecked for this bounded pilot; see the [Research update](research.md#2026-11-03-production-pilot-access-recheck). The next guided command is the one-batch pilot below; it has not been executed by the assistant.
 
+Subsequent pilot result: Danu executed that one-batch command; it paused with three unresolved items and zero accepted because Wikidata returned API `maxlag` with Retry-After 5. The complete error response is retained as A000001, consuming one attempt per QID. Scope/overall verification is `not_checked`; source-content/provenance/files checks passed. Guided recovery now uses `resume --run backup/idea-pilot-run-001 --max-batches 1` after the persisted cooldown, retaining the same run and quota. Do not rerun `collect` into this directory. This expected transient path is already covered by offline tests; no implementation change is required by the observed evidence.
+
 Run commands from `/Users/danu/Documents/ChatGPT/Dura-Europos`. Every new output directory must be absent; do not create it beforehand or reuse an earlier attempt.
 
 ## Stop 1: prepare the exact parent-linked subset
