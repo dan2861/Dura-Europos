@@ -72,7 +72,9 @@ def _path(root, name):
     for part in relative.parts:
         path = path / part
         _require(not path.is_symlink(), "symlink in artifact path")
-    _require(stat.S_ISREG(path.stat().st_mode), "artifact is not a regular file")
+    status = path.stat()
+    _require(stat.S_ISREG(status.st_mode) and status.st_nlink == 1,
+             "artifact must be a regular file without hard links")
     return path
 
 

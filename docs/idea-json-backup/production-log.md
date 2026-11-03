@@ -18,3 +18,5 @@ Authorization: assistant runs offline TDD and makes small local commits; Danu ex
 | Selection directory durability review fix | Parent directory fsync failure was never reached before requests | Six discovery tests pass; parent-sync failure prevents every dispatch |
 | Unsuccessful worker review fix | Nonzero worker exit after published success metadata was classified as retryable transport | Nineteen client tests pass; nonzero exit remains saving/uncertain, retains bytes and is nonretryable |
 | Observed selection receipt audit | Synthetic-only verifier rejected valid production/injected receipts and retry history | Eleven independent verifier tests pass; strict timing, header lists, decode linkage, scope and cross-graph cooldown checked |
+| Selection hardlink rule | A checksummed public source hardlinked outside the bundle still passed | Twelve independent selection tests pass; public payload requires one regular-file link |
+| Production discovery commands | New production CLI absent | Two CLI tests pass with mocked discovery and real independent read-only selection audits; no live query executed |

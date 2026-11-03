@@ -3,6 +3,7 @@ import hashlib
 import copy
 import gzip
 import json
+import os
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -99,6 +100,13 @@ def production_fixture(root, *, compressed=False, kind="production"):
 
 
 class SelectionVerifierTests(unittest.TestCase):
+    def test_hardlinked_public_evidence_is_rejected(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / "selection"
+            fixture(root)
+            os.link(root / "sources/main.json", Path(directory) / "outside-link.json")
+            self.assertEqual(verify_selection(root)["status"], "failed")
+
     def test_production_receipts_and_synthetic_injected_receipts_pass(self):
         for compressed, kind in ((False, "production"), (True, "production"), (True, "synthetic")):
             with self.subTest(compressed=compressed, kind=kind), TemporaryDirectory() as directory:
