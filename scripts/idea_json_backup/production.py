@@ -273,10 +273,11 @@ def _process(store, *, fetcher, sleep, now_fn, max_batches, monotonic):
             else:
                 retryable = (capture.status_code in TRANSIENT or
                              (capture.stage == "transport" and capture.error is not None and capture.receipt_complete is not True))
-                retryable = retryable and capture.stage != "saving" and capture.headers_observed is not None and not capture.interrupted
+                retryable = retryable and capture.stage != "saving" and capture.headers_observed is not None
                 issue = error(capture.stage, "server_wait_unknown" if capture.headers_observed is None else "capture_failed",
                               capture.error or "Unusable response receipt", retryable)
-                outcome = "saving_failure" if capture.stage == "saving" else "transient_failure" if retryable else "review_required"
+                outcome = ("saving_failure" if capture.stage == "saving" else "interrupted" if capture.interrupted
+                           else "transient_failure" if retryable else "review_required")
                 classification = {"outcome": outcome, "api_error": None, "warnings": None, "error": issue,
                                   "item_results": [{"qid": q, "outcome": "transient_failure" if retryable else "review_required",
                                                     "returned_qid": None, "error": issue} for q in qids]}

@@ -45,6 +45,29 @@ class Clock:
 
 
 class ProductionTests(unittest.TestCase):
+    def test_known_header_interruption_can_resume_within_quota(self):
+        clock, calls = Clock(), []
+        normal = self.fetcher(clock, calls)
+        first = []
+
+        def interrupted(request, directory, **options):
+            if not first:
+                first.append(True)
+                calls.append((clock.seconds, request["parameters"]["ids"].split("|")))
+                return FetchResult(b"partial", None, 200, {}, clock.utc(), clock.utc(), True,
+                                   None, None, False, "interrupted during response capture", interrupted=True)
+            return normal(request, directory, **options)
+
+        with TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / "run"
+            with self.assertRaises(KeyboardInterrupt):
+                collect(self.selection(base, ["Q1"]), root, fetcher=interrupted, sleep=clock.sleep,
+                        now_fn=clock.utc, monotonic=clock.monotonic)
+            resume(root, fetcher=interrupted, sleep=clock.sleep, now_fn=clock.utc, monotonic=clock.monotonic)
+            self.assertEqual([stamp for stamp, qids in calls], [0, 5])
+            self.assertEqual(verify_collection(root)["status"], "passed")
+
     def test_unowned_public_payload_holds_resume_before_fresh_dispatch(self):
         clock, calls = Clock(), []
         with TemporaryDirectory() as directory:
