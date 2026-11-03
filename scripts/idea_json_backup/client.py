@@ -1,13 +1,19 @@
 """Generic identified GET capture for discovery and production collection."""
 import gzip
+import json
 import math
+import multiprocessing
+import os
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
+
+from .files import write_bytes
 
 
 ENDPOINTS = {
@@ -167,3 +173,149 @@ def collect_http(request, *, transport=None, timeout_seconds=60, on_headers=None
                 if result is not None:
                     result.error = result.error or f"{type(exc).__name__}: {exc}"
     return result
+
+
+def _sync_directory(path):
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def write_all(stream, body):
+    """Write every received byte and synchronize before acknowledging capture."""
+    remaining = memoryview(body)
+    while remaining:
+        count = stream.write(remaining)
+        if type(count) is not int or count <= 0 or count > len(remaining):
+            raise CaptureWriteError("Incomplete response capture write")
+        remaining = remaining[count:]
+    stream.flush()
+    os.fsync(stream.fileno())
+
+
+def _publish(path, value):
+    write_bytes(path, json.dumps(value).encode("utf-8"))
+
+
+def network_worker(request, timeout_seconds, directory):
+    """Persist headers before reading; body files exist only for received bytes."""
+    folder = Path(directory)
+    stream = None
+
+    def save_chunk(body):
+        nonlocal stream
+        if stream is None:
+            stream = (folder / "encoded.body").open("xb", buffering=0)
+            _sync_directory(folder)
+        write_all(stream, body)
+
+    try:
+        result = collect_http(request, timeout_seconds=timeout_seconds,
+                              on_headers=lambda value: _publish(folder / "receipt.json", value),
+                              on_chunk=save_chunk)
+    finally:
+        if stream is not None:
+            stream.close()
+    if result.decoded:
+        try:
+            write_bytes(folder / "decoded.body", result.decoded)
+        except Exception as exc:
+            result.error = f"{type(exc).__name__}: {exc}"
+            result.stage = "saving"
+            result.decoded = None
+    metadata = asdict(result)
+    metadata["encoded_size"] = len(metadata.pop("encoded"))
+    decoded = metadata.pop("decoded")
+    metadata["decoded_size"] = None if decoded is None else len(decoded)
+    _publish(folder / "result.json", metadata)
+
+
+def fetch(request, capture_directory, *, timeout_seconds=60, worker=None):
+    """Supervise one GET; retain the exclusive caller-owned spool on every path.
+
+    A missing outcome after possible dispatch has unknown header observation.
+    A durable pre-header failure is distinct and can be classified by its caller.
+    No retry, sleep/backoff or item acceptance is performed here.
+    """
+    request_url(request)
+    _deadline(timeout_seconds)
+    deadline = time.monotonic() + timeout_seconds
+    started_at = utc_now()
+    folder = Path(capture_directory)
+    folder.mkdir()
+    _sync_directory(folder.parent)
+    _publish(folder / "dispatch.json", {"request": request, "started_at": started_at,
+                                      "timeout_seconds": timeout_seconds})
+    process = multiprocessing.get_context("spawn").Process(
+        target=worker or network_worker, args=(request, timeout_seconds, str(folder)))
+    forced_error = None
+    interrupted = False
+    start_failed = False
+    try:
+        process.start()
+        process.join(max(0, deadline - time.monotonic()))
+        if time.monotonic() >= deadline or process.is_alive():
+            forced_error = "total response deadline exceeded"
+        elif getattr(process, "exitcode", None) not in (None, 0):
+            forced_error = "response worker exited unsuccessfully"
+    except KeyboardInterrupt:
+        interrupted = True
+        forced_error = "interrupted during response capture"
+    except Exception as exc:
+        forced_error = f"{type(exc).__name__}: {exc}"
+        start_failed = process.pid is None
+    finally:
+        if process.pid is not None and process.is_alive():
+            process.terminate()
+            process.join(1)
+            if process.is_alive():
+                process.kill()
+                process.join()
+    metadata = dict(status_code=None, headers={}, started_at=started_at, headers_received_at=None,
+                    headers_observed=False if start_failed else None, response_received_at=None,
+                    response_elapsed_ms=None, receipt_complete=None,
+                    error="response worker exited without durable outcome", stage="saving", interrupted=interrupted)
+    encoded_size, decoded_size = None, None
+    outcome = False
+    for filename in ("receipt.json", "result.json"):
+        path = folder / filename
+        if not path.exists():
+            continue
+        try:
+            value = json.loads(path.read_bytes())
+            if not isinstance(value, dict):
+                raise ValueError("worker metadata must be an object")
+            metadata.update({key: value[key] for key in metadata if key in value})
+            if filename == "result.json":
+                encoded_size, decoded_size = value["encoded_size"], value["decoded_size"]
+                if (type(encoded_size) is not int or encoded_size < 0
+                        or (decoded_size is not None and (type(decoded_size) is not int or decoded_size < 0))):
+                    raise ValueError("invalid worker body sizes")
+                outcome = True
+        except (OSError, ValueError, KeyError) as exc:
+            forced_error = forced_error or f"Invalid durable capture metadata: {exc}"
+            metadata["stage"] = "saving"
+    encoded_path = folder / "encoded.body"
+    encoded = encoded_path.read_bytes() if encoded_path.exists() else b""
+    decoded_path = folder / "decoded.body"
+    decoded = decoded_path.read_bytes() if decoded_path.exists() else None
+    if outcome and len(encoded) != encoded_size:
+        forced_error = forced_error or "encoded capture size disagrees with durable outcome"
+        metadata["stage"] = "saving"
+    if outcome and decoded_size == 0 and decoded is None:
+        decoded = b""
+    elif outcome and decoded_size is not None and (decoded is None or len(decoded) != decoded_size):
+        forced_error = forced_error or "decoded capture size disagrees with durable outcome"
+        metadata["stage"] = "saving"
+    if not outcome:
+        metadata.update(error="response worker exited without durable outcome", stage="saving")
+    if forced_error:
+        metadata.update(error=forced_error, receipt_complete=False if metadata["headers_observed"] else None,
+                        response_received_at=None, response_elapsed_ms=None)
+        decoded = None
+        if start_failed or "deadline" in forced_error or interrupted:
+            metadata["stage"] = "transport"
+    metadata["interrupted"] = interrupted
+    return FetchResult(encoded=encoded, decoded=decoded, **metadata)

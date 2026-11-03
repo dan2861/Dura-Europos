@@ -11,3 +11,4 @@ Authorization: assistant runs offline TDD and makes small local commits; Danu ex
 | Generic HTTP capture | New client absent | Ten offline tests pass; full header lists, clean encoded receipt, framing/decode/saving distinctions retained |
 | Serial discovery orchestration | Discovery module absent | Three fake-clock tests pass: both graphs, numeric union, Retry-After seconds/date, bounded retries and no freeze on incomplete graph |
 | Independent synthetic selection audit | New verifier absent | Seven hand-built fixture tests pass, including altered union with refreshed hashes, schema/path/query corruption and >50 QIDs |
+| Generic capture supervision | Missing fetch entry point; known process-start failure initially mislabeled as saving | Eighteen offline tests pass; parentdeadline, durable dispatch/header receipt, lost-header holds, partial/empty capture and process cleanup |
