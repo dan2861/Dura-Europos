@@ -1,5 +1,6 @@
 """Locked exact-byte verification finalization and resumable publication intent."""
 import hashlib
+import os
 from pathlib import Path, PurePosixPath
 import stat
 import uuid
@@ -26,7 +27,9 @@ def _hash(path, relative):
     return {"path": relative, "size_bytes": count, "sha256": digest.hexdigest()}
 
 
-def _inputs(root):
+def _inputs(store):
+    store.internal_path(".state")
+    root = store.root
     values = []
     for path in root.rglob("*"):
         relative = path.relative_to(root)
@@ -41,17 +44,15 @@ def _inputs(root):
     return sorted(values, key=lambda value: value["path"])
 
 
-def _prepared(root, descriptor):
+def _prepared(store, descriptor):
     name = descriptor["path"]
+    if not isinstance(name, str):
+        raise ValueError("Unsafe prepared finalization path")
     relative = PurePosixPath(name)
-    if (not isinstance(name, str) or relative.is_absolute() or ".." in relative.parts
+    if (relative.is_absolute() or ".." in relative.parts
             or "\\" in name or str(relative) != name or relative.parts[:2] != (".state", "finalization")):
         raise ValueError("Unsafe prepared finalization path")
-    path = root
-    for part in relative.parts:
-        path /= part
-        if path.is_symlink():
-            raise ValueError("Linked prepared finalization file")
+    path = store.internal_path(name)
     if _hash(path, name) != descriptor:
         raise ValueError("Prepared finalization bytes changed")
     return path.read_bytes()
@@ -68,8 +69,8 @@ def _matches(path, expected):
 def _validate(store, intent):
     if not isinstance(intent, dict) or intent.get("run_id") != store.manifest["run_id"]:
         raise ValueError("Invalid finalization intent")
-    report_body = _prepared(store.root, intent["report"])
-    manifest_body = _prepared(store.root, intent["manifest"])
+    report_body = _prepared(store, intent["report"])
+    manifest_body = _prepared(store, intent["manifest"])
     report, target = codec.loads(report_body), codec.loads(manifest_body)
     if (report.get("run_id") != store.manifest["run_id"] or target.get("run_id") != store.manifest["run_id"]
             or report.get("status") not in ("passed", "failed", "not_checked")
@@ -77,7 +78,7 @@ def _validate(store, intent):
             or target.get("collection_status") != report["status"]
             or target.get("verification_path") != "verification.json"):
         raise ValueError("Prepared finalization status/identity disagrees")
-    if _inputs(store.root) != intent["inputs"]:
+    if _inputs(store) != intent["inputs"]:
         raise ValueError("Finalization inputs changed; prepared publication held")
     manifest_path, report_path = store.root / "manifest.json", store.root / "verification.json"
     target_manifest = describe("manifest.json", manifest_body)
@@ -94,6 +95,21 @@ def _validate(store, intent):
     return report_body, manifest_body, report, target, report_done, manifest_done
 
 
+def _publish_public(store, name, body, prepared):
+    """Private owned staging keeps any interrupted copy out of public inputs."""
+    relative = prepared["path"] + ".publish." + uuid.uuid4().hex
+    staging = store.internal_path(relative)
+    with staging.open("xb", buffering=0) as stream:
+        if stream.write(body) != len(body):
+            raise OSError("Incomplete finalization publication staging")
+        stream.flush()
+        os.fsync(stream.fileno())
+    _sync(staging.parent)
+    destination = store.path(name)
+    os.replace(store.internal_path(relative), destination)
+    _sync(store.root)
+
+
 def resume_finalization(store, *, hook=None):
     """Finish only the exact prepared bytes; never rerun the independent audit."""
     intent = store.get_internal("finalization")
@@ -101,12 +117,12 @@ def resume_finalization(store, *, hook=None):
         return None
     report_body, manifest_body, report, target, report_done, manifest_done = _validate(store, intent)
     if not report_done:
-        write_bytes(store.root / "verification.json", report_body, replace=True)
+        _publish_public(store, "verification.json", report_body, intent["report"])
     if hook:
         hook("afterreport")
     _validate(store, intent)
     if not manifest_done:
-        write_bytes(store.root / "manifest.json", manifest_body, replace=True)
+        _publish_public(store, "manifest.json", manifest_body, intent["manifest"])
     if hook:
         hook("aftermanifest")
         hook("beforejournal")
@@ -125,24 +141,27 @@ def finalize(run_dir, *, hook=None):
             raise ValueError("Finalization requires a collected, non-finalized run")
         if store.internal_items("payload:"):
             raise ValueError("Unrecovered payload ownership intents prevent finalization")
-        public_body = (store.root / "manifest.json").read_bytes()
+        public_body = store.path("manifest.json").read_bytes()
         if not codec.equal(codec.loads(public_body), current):
             raise ValueError("Public snapshots are not current; explicit recovery is required")
+        folder = store.internal_path(".state/finalization")
+        folder.mkdir(exist_ok=True)
+        folder = store.internal_path(".state/finalization")
+        _sync(folder.parent)
+        fingerprint = _inputs(store)
         report = verify_collection(store.root)
+        if _inputs(store) != fingerprint:
+            raise ValueError("Finalization inputs changed during independent audit")
         report_body = (codec.dumps(report) + "\n").encode("utf-8")
         target = dict(current, phase="finalized" if report["status"] == "passed" else "collected",
                       collection_status=report["status"], verification_path="verification.json")
         manifest_body = (codec.dumps(target) + "\n").encode("utf-8")
-        fingerprint = _inputs(store.root)
-        folder = store.root / ".state/finalization"
-        folder.mkdir(exist_ok=True)
-        _sync(folder.parent)
         identity = uuid.uuid4().hex
         report_name = f".state/finalization/{identity}.report.json"
         manifest_name = f".state/finalization/{identity}.manifest.json"
-        write_bytes(store.root / report_name, report_body)
-        write_bytes(store.root / manifest_name, manifest_body)
-        original_report = store.root / "verification.json"
+        write_bytes(store.internal_path(report_name), report_body)
+        write_bytes(store.internal_path(manifest_name), manifest_body)
+        original_report = store.path("verification.json")
         intent = {"run_id": current["run_id"], "inputs": fingerprint,
                   "original_manifest": describe("manifest.json", public_body),
                   "original_report": _hash(original_report, "verification.json") if original_report.exists() else None,

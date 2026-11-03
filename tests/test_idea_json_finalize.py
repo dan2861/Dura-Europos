@@ -1,8 +1,10 @@
 """Finalization and recovery over invented local runs; never live retrieval."""
 import json
+import os
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from scripts.sample_backup import jsoncodec as codec
 from scripts.idea_json_backup.collection_verify import verify_collection
@@ -55,6 +57,105 @@ def fixture(directory, *, accepted=True):
 
 
 class FinalizeTests(unittest.TestCase):
+    def interrupt(self, root, at):
+        def crash(phase):
+            if phase == at:
+                raise RuntimeError("Invented finalization crash at " + phase)
+        with self.assertRaises(RuntimeError):
+            finalize(root, hook=crash)
+
+    def test_audit_then_changed_input_cannot_be_finalized_as_passed(self):
+        with TemporaryDirectory() as directory:
+            root = fixture(directory)
+            original = verify_collection
+
+            def audit_then_damage(path):
+                report = original(path)
+                self.assertEqual(report["status"], "passed")
+                (root / "items/Q1.json").write_bytes(b"{}")
+                return report
+
+            with patch("scripts.idea_json_backup.finalize.verify_collection", side_effect=audit_then_damage):
+                with self.assertRaisesRegex(ValueError, "changed"):
+                    finalize(root)
+            self.assertEqual(json.loads((root / "manifest.json").read_bytes())["phase"], "collected")
+            self.assertFalse((root / "verification.json").exists())
+
+    def test_linked_private_finalization_folder_never_writes_outside(self):
+        with TemporaryDirectory() as directory:
+            root = fixture(directory)
+            outside = Path(directory) / "outside"
+            outside.mkdir()
+            (root / ".state/finalization").symlink_to(outside, target_is_directory=True)
+            with self.assertRaises(ValueError):
+                finalize(root)
+            self.assertEqual(list(outside.iterdir()), [])
+            self.assertFalse((root / "verification.json").exists())
+
+    def test_interrupted_publication_retains_owned_private_staging(self):
+        with TemporaryDirectory() as directory:
+            root = fixture(directory)
+            original_replace = os.replace
+
+            def crash_before_report(source, destination):
+                if Path(destination) == root / "verification.json":
+                    raise KeyboardInterrupt("Invented publication interruption")
+                return original_replace(source, destination)
+
+            with patch("os.replace", side_effect=crash_before_report), self.assertRaises(KeyboardInterrupt):
+                finalize(root)
+            self.assertTrue(list((root / ".state/finalization").glob("*.publish.*")))
+            self.assertEqual(list(root.glob(".pending-*")), [])
+            with RunState.open(root) as store:
+                with patch("scripts.idea_json_backup.finalize.verify_collection", side_effect=AssertionError("No repeated audit")):
+                    self.assertEqual(resume_finalization(store)["status"], "passed")
+
+    def test_all_crash_boundaries_resume_the_exact_prepared_bytes_without_new_audit(self):
+        for boundary in ("afterprepare", "afterreport", "aftermanifest", "beforejournal"):
+            with self.subTest(boundary=boundary), TemporaryDirectory() as directory:
+                root = fixture(directory)
+                self.interrupt(root, boundary)
+                with RunState.open(root) as store:
+                    intent = store.get_internal("finalization")
+                    report = (root / intent["report"]["path"]).read_bytes()
+                    manifest = (root / intent["manifest"]["path"]).read_bytes()
+                    with patch("scripts.idea_json_backup.finalize.verify_collection", side_effect=AssertionError("No repeated audit")):
+                        self.assertEqual(resume_finalization(store)["status"], "passed")
+                    self.assertEqual(store.manifest["phase"], "finalized")
+                    self.assertIsNone(store.get_internal("finalization"))
+                self.assertEqual((root / "verification.json").read_bytes(), report)
+                self.assertEqual((root / "manifest.json").read_bytes(), manifest)
+
+    def test_changed_inputs_or_prepared_bytes_hold_recovery_without_publication(self):
+        for damage in ("item", "extra", "prepared"):
+            with self.subTest(damage=damage), TemporaryDirectory() as directory:
+                root = fixture(directory)
+                self.interrupt(root, "afterprepare")
+                if damage == "item":
+                    (root / "items/Q1.json").write_bytes(b"{}")
+                elif damage == "extra":
+                    (root / "unexpected.bin").write_bytes(b"unexpected")
+                else:
+                    with RunState.open(root) as store:
+                        prepared = store.get_internal("finalization")["report"]["path"]
+                    (root / prepared).write_bytes(b"changed")
+                with patch("scripts.idea_json_backup.finalize.verify_collection", side_effect=AssertionError("No repeated audit")):
+                    with self.assertRaises(ValueError):
+                        with RunState.open(root) as store:
+                            resume_finalization(store)
+                self.assertFalse((root / "verification.json").exists())
+
+    def test_published_manifest_with_changed_report_is_held_not_repaired(self):
+        with TemporaryDirectory() as directory:
+            root = fixture(directory)
+            self.interrupt(root, "aftermanifest")
+            (root / "verification.json").write_bytes(b"{}")
+            with RunState.open(root) as store:
+                with self.assertRaises(ValueError):
+                    resume_finalization(store)
+                self.assertIsNotNone(store.get_internal("finalization"))
+            self.assertEqual((root / "verification.json").read_bytes(), b"{}")
+
     def test_passed_finalization_publishes_report_then_manifest_and_freezes_payload(self):
         with TemporaryDirectory() as directory:
             root = fixture(directory)
