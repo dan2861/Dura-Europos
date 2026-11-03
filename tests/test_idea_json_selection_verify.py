@@ -1,7 +1,10 @@
 """Independent, invented discovery bundles; no producer or network is called."""
 import hashlib
+import copy
+import gzip
 import json
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -71,7 +74,90 @@ def fixture(root, main=("Q10", "Q2", "Q2"), scholarly=("Q2", "Q1")):
     return metadata
 
 
+def at(seconds):
+    return (datetime(2026, 11, 3, 12, tzinfo=timezone.utc) + timedelta(seconds=seconds)).strftime(
+        "%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+def production_fixture(root, *, compressed=False, kind="production"):
+    metadata = fixture(root)
+    metadata.update(kind=kind, frozen_at=at(20))
+    for source, start in zip(metadata["sources"], (6, 9)):
+        source.update(started_at=at(start), finished_at=at(start + 2))
+        attempt = source["attempts"][0]
+        raw = (root / attempt["decoded"]["path"]).read_bytes()
+        encoded = gzip.compress(raw, mtime=0) if compressed else raw
+        attempt.update(started_at=at(start), headers_received_at=at(start + 1), headers_observed=True,
+                       response_received_at=at(start + 1), response_elapsed_ms=1000,
+                       receipt_complete=True, finished_at=at(start + 2), status_code=200,
+                       headers={"content-encoding": ["gzip" if compressed else "identity"],
+                                "content-length": [str(len(encoded))]},
+                       encoded=store(root, "sources/" + source["graph"] + ".encoded", encoded, complete=True),
+                       next_dispatch_at=at(start + 3))
+    write_metadata(root, metadata)
+    return metadata
+
+
 class SelectionVerifierTests(unittest.TestCase):
+    def test_production_receipts_and_synthetic_injected_receipts_pass(self):
+        for compressed, kind in ((False, "production"), (True, "production"), (True, "synthetic")):
+            with self.subTest(compressed=compressed, kind=kind), TemporaryDirectory() as directory:
+                root = Path(directory) / "selection"
+                production_fixture(root, compressed=compressed, kind=kind)
+                self.assertEqual(verify_selection(root), {"status": "passed", "findings": []})
+
+    def test_corrupt_production_receipt_fails_closed(self):
+        changes = [lambda m: m["sources"][0]["attempts"][0].update(status_code=True),
+                   lambda m: m["sources"][0]["attempts"][0].update(headers_observed=False),
+                   lambda m: m["sources"][0]["attempts"][0].update(response_elapsed_ms=True),
+                   lambda m: m["sources"][0]["attempts"][0].update(receipt_complete=False),
+                   lambda m: m["sources"][0]["attempts"][0].update(response_received_at=at(4)),
+                   lambda m: m["sources"][0]["attempts"][0].update(next_dispatch_at=at(7)),
+                   lambda m: m["sources"][0].update(finished_at=at(5)),
+                   lambda m: m.update(frozen_at=at(10)),
+                   lambda m: m["sources"][0]["attempts"][0]["headers"].update(**{"content-length": ["9999"]}),
+                   lambda m: m["sources"][0]["attempts"][0]["headers"].update(**{"content-encoding": ["gzip", "identity"]}),
+                   lambda m: m["sources"][0]["attempts"][0]["request"]["parameters"].update(format="xml")]
+        for change in changes:
+            with self.subTest(change=change), TemporaryDirectory() as directory:
+                root = Path(directory) / "selection"
+                metadata = production_fixture(root)
+                change(metadata)
+                write_metadata(root, metadata)
+                self.assertEqual(verify_selection(root)["status"], "failed")
+
+    def test_changed_encoded_body_fails_even_after_refreshed_descriptor(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / "selection"
+            metadata = production_fixture(root, compressed=True)
+            attempt = metadata["sources"][0]["attempts"][0]
+            encoded = gzip.compress(result(["Q99"]), mtime=0)
+            attempt["encoded"] = store(root, attempt["encoded"]["path"], encoded, complete=True)
+            attempt["headers"]["content-length"] = [str(len(encoded))]
+            write_metadata(root, metadata)
+            self.assertEqual(verify_selection(root)["status"], "failed")
+
+    def test_retained_transient_history_is_checked_without_parsing_error_body_as_results(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / "selection"
+            metadata = production_fixture(root)
+            source = metadata["sources"][0]
+            failed = copy.deepcopy(source["attempts"][0])
+            failed.update(attempt_id="main-failed", started_at=at(0), headers_received_at=at(0.1),
+                          response_received_at=at(0.2), response_elapsed_ms=200,
+                          finished_at=at(0.3), status_code=503, next_dispatch_at=at(5.3),
+                          headers={"content-length": ["4"], "retry-after": ["5"]},
+                          encoded=store(root, "sources/main-failed.body", b"busy", complete=True),
+                          decoded=store(root, "sources/main-failed.decoded", b"busy", complete=True),
+                          outcome="transient_failure", error={"stage": "transport", "code": "http_status",
+                                                               "message": "HTTP 503", "retryable": True})
+            source.update(started_at=at(0), attempts=[failed, source["attempts"][0]])
+            write_metadata(root, metadata)
+            self.assertEqual(verify_selection(root)["status"], "passed")
+            failed["error"]["retryable"] = False
+            write_metadata(root, metadata)
+            self.assertEqual(verify_selection(root)["status"], "failed")
+
     def test_independent_fixture_passes_without_mutation(self):
         with TemporaryDirectory() as directory:
             root = Path(directory) / "selection"
