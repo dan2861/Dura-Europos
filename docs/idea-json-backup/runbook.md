@@ -1,6 +1,6 @@
 # IDEA JSON backup: production roadmap runbook
 
-Updated 2026-11-03. The three-item MVP pilot and local review are complete. The first production milestone implements **selection discovery and independent selection verification only**. Separate milestone/final reviews are clear and all 153 offline tests pass; live discovery is still awaiting Danu’s guided run. Production item collection/resume, the SQLite journal, archive packaging and deposit checks are later increments. The [MVP runbook](mvp-runbook.md) remains applicable to the prototype.
+Updated 2026-11-03. The three-item MVP pilot and local review are complete. The first production milestone implements **selection discovery and independent selection verification only**. Separate milestone/final reviews are clear and all 153 offline tests pass; Danu reports guided discovery and persisted verification passed; saved-evidence review confirms the frozen union of 33,709 QIDs (33,239 main plus 470 scholarly, no overlap). Production storage/collection/recovery is now the active offline implementation stage. Production item collection/resume, the SQLite journal, archive packaging and deposit checks are later increments. The [MVP runbook](mvp-runbook.md) remains applicable to the prototype.
 
 Danu runs operational commands with guidance. The assistant runs invented offline TDD tests and makes small commits. Do not infer a live discovery or full backup from passing unit tests. No phase starts another phase automatically.
 
