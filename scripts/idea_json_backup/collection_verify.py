@@ -7,7 +7,8 @@ import gzip
 import re
 import stat
 import zlib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
 
@@ -240,6 +241,20 @@ class Audit:
             _require(all(isinstance(diagnostic[k], str) and diagnostic[k] for k in ("role", "explanation")), "Unexplained diagnostic", "provenance")
             self.read(diagnostic["file"], owner, body=True)
         _error(value["error"])
+        if value["api_error"] is not None or value["warnings"] is not None:
+            _require(decoded is not None and value["decoded"]["complete"] is True,
+                     "API summary lacks a complete preserved body", "provenance")
+            envelope = loads(decoded)
+            _require(isinstance(envelope, dict), "API summary body is not an object", "provenance")
+            if value["api_error"] is not None:
+                _keys(value["api_error"], {"code", "message"}, "API error", "provenance")
+                raw = envelope.get("error")
+                _require(isinstance(raw, dict) and isinstance(raw.get("code"), str)
+                         and value["api_error"]["code"] == raw["code"]
+                         and value["api_error"]["message"] == raw.get("info", raw.get("message")),
+                         "API summary differs from preserved body", "provenance")
+            _require(_same(value["warnings"], envelope.get("warnings")),
+                     "Warnings differ from preserved body", "provenance")
         _require(value["outcome"] in ("reserved", "succeeded", "mixed", "transient_failure", "review_required", "interrupted", "saving_failure"),
                  "Unknown attempt outcome", "provenance")
         results = value["item_results"]
@@ -251,8 +266,11 @@ class Audit:
         usable = value["outcome"] in ("succeeded", "mixed")
         if usable:
             _require(code == 200 and complete is True and decoded is not None and value["decoded"]["complete"] is True
-                     and value["api_error"] is None and value["warnings"] is None and finished is not None,
+                     and value["api_error"] is None and value["warnings"] is None,
                      "Successful source lacks complete usable receipt", "provenance")
+            if finished is None:
+                _require(not self.terminal, "Terminal collection has unfinished local extraction", "provenance")
+                self.unfinished = True
             source = loads(decoded)
             _require(isinstance(source, dict) and set(source) == {"success", "entities"}
                      and _same(source["success"], Number("1")) and isinstance(source["entities"], dict)
@@ -260,6 +278,71 @@ class Audit:
             return source["entities"]
         _require(not any(row["outcome"] == "accepted" for row in results), "Failed attempt claims accepted items", "provenance")
         return None
+
+    def retry_history(self, attempts):
+        """Derive dispatch lower bounds from public receipts and consumed quota."""
+        used, eligible = {}, {}
+        global_gate = None
+        unfinished_attempt = False
+        for attempt in attempts:
+            dispatch = _time(attempt["dispatch_started_at"], nullable=True)
+            if dispatch is not None:
+                _require(not unfinished_attempt, "Dispatch occurred before local source processing finished", "provenance")
+                _require(global_gate is None or dispatch >= global_gate,
+                         "Dispatch evades global cooldown", "provenance")
+                for qid in attempt["requested_qids"]:
+                    _require(qid not in eligible or dispatch >= eligible[qid],
+                             "Dispatch evades item retry backoff", "provenance", qid=qid)
+            for qid in attempt["requested_qids"]:
+                used[qid] = used.get(qid, 0) + 1
+            finished = _time(attempt["finished_at"], nullable=True)
+            if finished is None:
+                _require(attempt["outcome"] == "reserved" or (not self.terminal and attempt["outcome"] in ("succeeded", "mixed")),
+                         "Completed attempt lacks finish time", "provenance")
+                unfinished_attempt = self.unfinished = True
+                continue
+            global_gate = finished + timedelta(seconds=1)
+            headers = attempt["http"]["headers"] if attempt["http"] is not None else {}
+            malformed = False
+            for value in headers.get("retry-after", []):
+                try:
+                    if re.fullmatch(r"[0-9]+", value):
+                        receipt = _time(attempt["headers_received_at"])
+                        bound = receipt + timedelta(seconds=int(value))
+                    else:
+                        bound = parsedate_to_datetime(value)
+                        if bound.tzinfo is None:
+                            raise ValueError("Retry-After needs timezone")
+                    global_gate = max(global_gate, bound)
+                except (TypeError, ValueError, OverflowError):
+                    malformed = True
+            if malformed:
+                error = attempt["error"]
+                _require(isinstance(error, dict) and "retry_after" in error["code"],
+                         "Malformed Retry-After lacks an explicit finding", "provenance")
+            status = attempt["http"]["status_code"] if attempt["http"] is not None else None
+            status = int(status.token) if isinstance(status, Number) else None
+            for result in attempt["item_results"]:
+                if result["error"] is None or result["error"]["retryable"] is not True:
+                    continue
+                error = result["error"]
+                known_receipt = type(attempt["headers_observed"]) is bool
+                transient = (error["stage"] in ("transport", "decoding", "api") and known_receipt
+                             and (status in (429, 500, 502, 503, 504)
+                                  or (error["stage"] == "transport" and attempt["receipt_complete"] is not True)
+                                  or (status == 200 and error["stage"] == "api"
+                                      and attempt["api_error"] is not None
+                                      and attempt["api_error"]["code"] == "maxlag")))
+                recovered = (error["stage"] == "recovery" and known_receipt
+                             and attempt["outcome"] == "interrupted" and attempt["recovered_at"] is not None)
+                _require(transient or recovered, "History retries a held or unknown failure", "provenance", qid=result["qid"])
+                qid = result["qid"]
+                eligible[qid] = max(global_gate, finished + timedelta(seconds=5 if used[qid] == 1 else 10))
+            if attempt["next_eligible_at"] is not None:
+                bound = _time(attempt["next_eligible_at"])
+                _require(bound >= global_gate and all(bound >= eligible[qid]
+                         for qid in attempt["requested_qids"] if qid in eligible),
+                         "Attempt retry eligibility shortens recorded waits", "provenance")
 
     def verify(self):
         _require(self.root.is_dir() and not self.root.is_symlink(), "Invalid run directory", "files")
@@ -278,6 +361,7 @@ class Audit:
         _time(manifest["next_dispatch_at"], nullable=True)
         _require((started is None or created <= started) and (finished is None or started is not None and started <= finished), "Invalid collection interval")
         _require(manifest["phase"] in ("initialized", "collecting", "paused", "collected", "finalized"), "Invalid phase")
+        self.terminal = manifest["phase"] in ("collected", "finalized")
         if manifest["phase"] in ("collected", "finalized"):
             _require(finished is not None, "Terminal collection lacks finish time")
         else:
@@ -371,6 +455,7 @@ class Audit:
                 _require(row["membership_at_retrieval"] == _membership(entity), "Membership differs from preserved evidence", "source_content", qid=qid)
                 saved = loads(self.read(row["item"], qid, expected=f"items/{qid}.json"))
                 _require(_same(saved, entity), "Extracted content differs from preserved source", "source_content", qid=qid)
+        self.retry_history(attempts)
         _require(set(grouped) <= set(ids), "Unknown accepted source ID", "provenance")
         if attempts:
             dispatches = [a["dispatch_started_at"] for a in attempts if a["dispatch_started_at"] is not None]
@@ -382,8 +467,18 @@ class Audit:
         if manifest["phase"] == "finalized":
             _require(manifest["verification_path"] == "verification.json" and manifest["collection_status"] == "passed", "Finalized run lacks passing report")
             report = loads(self.path("verification.json").read_bytes())
-            _require(isinstance(report, dict) and report.get("run_id") == manifest["run_id"]
-                     and report.get("status") == "passed", "Finalized verification report disagrees")
+            _keys(report, {"format_version", "run_id", "checked_at", "inputs", "status", "checks", "counts", "findings"},
+                  "verification report")
+            _time(report["checked_at"])
+            _require(not self.unfinished and report["format_version"] == "1.0.0"
+                     and report["run_id"] == manifest["run_id"] and report["status"] == "passed"
+                     and report["findings"] == []
+                     and _same(report["inputs"], self.report["inputs"])
+                     and _same(report["counts"], loads(dumps(counts))), "Finalized verification report disagrees")
+            _require(isinstance(report["checks"], list) and len(report["checks"]) == len(CHECKS), "Incomplete verification checks")
+            for name, check in zip(CHECKS, report["checks"]):
+                _keys(check, {"check_id", "status", "findings"}, "verification check")
+                _require(check == {"check_id": name, "status": "passed", "findings": []}, "Finalized check did not pass")
         actual = set()
         for path in self.root.rglob("*"):
             relative = path.relative_to(self.root)

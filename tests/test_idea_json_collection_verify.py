@@ -3,6 +3,7 @@ import copy
 import hashlib
 import json
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -82,7 +83,83 @@ def fixture(root):
     return manifest, inventory, [attempt]
 
 
+def at(second):
+    return (datetime(2026, 11, 3, 12, tzinfo=timezone.utc) + timedelta(seconds=second)).strftime(
+        "%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+def with_retry(root, *, dispatch=8, status=503, retry_after=None, api_error=None):
+    manifest, inventory, attempts = fixture(root)
+    successful = attempts[0]
+    successful.update(attempt_id="A000002", reserved_at=at(dispatch), dispatch_started_at=at(dispatch),
+                      headers_received_at=at(dispatch + 1), response_received_at=at(dispatch + 1),
+                      finished_at=at(dispatch + 2))
+    response = (root / successful["decoded"]["path"]).read_bytes()
+    (root / successful["decoded"]["path"]).unlink()
+    successful["encoded"] = store(root, "responses/A000002.json", response, complete=True)
+    successful["decoded"] = dict(successful["encoded"])
+    failed_body = (b'{"error":{"code":"maxlag","info":"busy"}}' if api_error else b"busy")
+    previous = copy.deepcopy(successful)
+    previous.update(attempt_id="A000001", reserved_at=at(0), dispatch_started_at=at(1),
+                    headers_received_at=at(2), response_received_at=at(2), finished_at=at(3),
+                    http={"status_code": status, "headers": {"content-length": [str(len(failed_body))]}},
+                    api_error=api_error, outcome="transient_failure",
+                    error={"stage": "api" if api_error else "transport", "code": "maxlag" if api_error else "http_error",
+                           "message": "busy", "retryable": True},
+                    item_results=[{"qid": "Q1", "outcome": "transient_failure", "returned_qid": None,
+                                   "error": {"stage": "api" if api_error else "transport", "code": "busy",
+                                             "message": "busy", "retryable": True}}], next_eligible_at=at(8))
+    if retry_after:
+        previous["http"]["headers"]["retry-after"] = retry_after
+        previous["next_eligible_at"] = at(max(8, 2 + max(int(v) for v in retry_after)))
+    previous["encoded"] = store(root, "responses/A000001.failure", failed_body, complete=True)
+    previous["decoded"] = dict(previous["encoded"])
+    inventory[0].update(source_response_id="A000002", retrieved_at=at(dispatch + 1),
+                        attempt_ids=["A000001", "A000002"])
+    manifest.update(finished_at=at(dispatch + 2), next_dispatch_at=at(dispatch + 3))
+    rewrite(root, manifest, inventory, [previous, successful])
+    return manifest, inventory, [previous, successful]
+
+
 class CollectionVerifierTests(unittest.TestCase):
+    def test_committed_complete_source_before_local_finish_is_unfinished(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / "run"
+            manifest, inventory, attempts = fixture(root)
+            manifest.update(phase="paused", finished_at=None)
+            attempts[0]["finished_at"] = None
+            rewrite(root, manifest, inventory, attempts)
+            self.assertEqual(verify_collection(root)["status"], "not_checked")
+            manifest.update(phase="collected", finished_at=at(3))
+            rewrite(root, manifest, inventory, attempts)
+            self.assertEqual(verify_collection(root)["status"], "failed")
+
+    def test_retry_waits_and_api_error_provenance_are_independent(self):
+        for dispatch, retry_after, status, api_error, expected in (
+                (8, None, 503, None, "passed"), (7, None, 503, None, "failed"),
+                (10, ["20"], 503, None, "failed"), (22, ["2", "20"], 503, None, "passed"),
+                (8, None, 200, {"code": "maxlag", "message": "busy"}, "passed"),
+                (8, None, 200, {"code": "other_error", "message": "busy"}, "failed")):
+            with self.subTest(dispatch=dispatch, retry_after=retry_after, api_error=api_error), TemporaryDirectory() as directory:
+                root = Path(directory) / "run"
+                with_retry(root, dispatch=dispatch, retry_after=retry_after, status=status, api_error=api_error)
+                self.assertEqual(verify_collection(root)["status"], expected)
+
+    def test_finalized_report_requires_full_shape_and_current_inputs(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / "run"
+            manifest, inventory, attempts = fixture(root)
+            report = verify_collection(root)
+            manifest.update(phase="finalized", collection_status="passed", verification_path="verification.json")
+            write_json(root, "verification.json", {"run_id": manifest["run_id"], "status": "passed"})
+            rewrite(root, manifest, inventory, attempts)
+            self.assertEqual(verify_collection(root)["status"], "failed")
+            write_json(root, "verification.json", report)
+            self.assertEqual(verify_collection(root)["status"], "passed")
+            report["counts"]["selected"] = 2
+            write_json(root, "verification.json", report)
+            self.assertEqual(verify_collection(root)["status"], "failed")
+
     def test_independent_complete_public_fixture_passes_without_mutation(self):
         with TemporaryDirectory() as directory:
             root = Path(directory) / "run"
