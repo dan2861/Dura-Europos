@@ -39,6 +39,24 @@ class Clock:
 
 
 class ProductionTests(unittest.TestCase):
+    def test_resume_recovers_strongest_mixed_server_wait_before_fresh_qids(self):
+        clock, calls = Clock(), []
+        response = self.fetcher(clock, calls)
+
+        def server(request, directory, **kwargs):
+            value = response(request, directory, **kwargs)
+            value.headers = {"retry-after": ["20", "Tue, 03 Nov 2026 12:00:30 GMT"]}
+            return value
+
+        with TemporaryDirectory() as directory:
+            base = Path(directory)
+            selected = self.selection(base, [f"Q{i}" for i in range(1, 52)])
+            root = base / "run"
+            with patch("scripts.idea_json_backup.production._retain_wait", side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
+                collect(selected, root, fetcher=server, sleep=clock.sleep, now_fn=clock.utc)
+            resume(root, fetcher=response, sleep=clock.sleep, now_fn=clock.utc)
+            self.assertEqual([stamp for stamp, qids in calls], [0, 30])
+
     def selection(self, base, qids):
         root = base / "selection"
         freeze_fixture_responses(graph(*qids), graph(), root)

@@ -1,5 +1,6 @@
 """Sequential production collection and local recovery from the durable journal."""
 from datetime import datetime, timedelta
+from email.utils import parsedate_to_datetime
 import json
 from pathlib import Path
 import time
@@ -31,6 +32,22 @@ def _retain_wait(store, until):
     previous = store.manifest["next_dispatch_at"]
     if previous is None or until > previous:
         store.set_run(next_dispatch_at=until)
+
+
+def _receipt_wait(headers, received, current):
+    deadlines = []
+    for value in headers.get("retry-after", []):
+        try:
+            if value.isascii() and value.isdigit():
+                deadlines.append(_after(received, int(value)))
+            else:
+                parsed = parsedate_to_datetime(value)
+                if parsed.tzinfo is None:
+                    raise ValueError("Retry-After date lacks timezone")
+                deadlines.append(parsed.astimezone(_date(current).tzinfo).strftime("%Y-%m-%dT%H:%M:%S.%fZ"))
+        except (ValueError, TypeError, OverflowError):
+            continue
+    return max(deadlines) if deadlines else None
 
 
 def _publish_body(store, attempt_id, role, body, complete):
@@ -158,13 +175,10 @@ def recover(store):
         elif attempt["outcome"] in ("succeeded", "mixed"):
             _complete_source(store, attempt)
         if attempt["http"]:
-            wait, malformed = _retry_after(attempt["http"]["headers"], store.now())
-            if wait:
-                # A delta header is anchored to observed receipt time, not each resume.
-                receipt = attempt["headers_received_at"] or attempt["recovered_at"] or store.now()
-                headers = attempt["http"]["headers"]
-                relative = max((int(v) for v in headers.get("retry-after", []) if v.isascii() and v.isdigit()), default=0)
-                _retain_wait(store, max(_after(receipt, relative), _after(store.now(), max(0, wait - relative))))
+            receipt = attempt["headers_received_at"] or attempt["recovered_at"] or store.now()
+            deadline = _receipt_wait(attempt["http"]["headers"], receipt, store.now())
+            if deadline:
+                _retain_wait(store, deadline)
         if attempt["next_eligible_at"]:
             _retain_wait(store, attempt["next_eligible_at"])
     if hold:
