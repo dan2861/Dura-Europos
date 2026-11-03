@@ -41,3 +41,4 @@ Final discovery milestone review is clear after the known-failure precedence fix
 | Warning/error honesty | maxlag with warning retried; missing error message got invented fallback | Four classifier tests pass; warnings hold the whole batch and malformed API summary is retained as unresolved |
 | Retry completion boundary | Advancing UTC exposed item/attempt retry eligibility before finished+5 seconds | Six controller tests pass; transient outcome is committed with one finish-based eligibility boundary while active reservation prevents early retries |
 | Live monotonic cooldown | Collector had no monotonic guard/injection; wall-clock jump could skip relative server wait | Seven controller tests pass; live monotonic floor supplements persisted UTC deadline |
+| Resume/finalization ordering | Resume ignored prepared report intent and left run collected | Eight controller tests pass; exact prepared finalization is completed before snapshots, acceptance or network |

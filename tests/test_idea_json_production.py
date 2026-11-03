@@ -11,6 +11,7 @@ from scripts.idea_json_backup.production import collect, resume
 from scripts.idea_json_backup.state import RunState
 from scripts.idea_json_backup.selection import freeze_fixture_responses
 from scripts.idea_json_backup.collection_verify import verify_collection
+from scripts.idea_json_backup.finalize import finalize
 
 
 def graph(*qids):
@@ -44,6 +45,29 @@ class Clock:
 
 
 class ProductionTests(unittest.TestCase):
+    def test_resume_completes_prepared_finalization_before_any_other_work(self):
+        clock, calls = Clock(), []
+        with TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / "run"
+            collect(self.selection(base, ["Q1"]), root, fetcher=self.fetcher(clock, calls),
+                    sleep=clock.sleep, now_fn=clock.utc, monotonic=clock.monotonic)
+
+            def interrupt(step):
+                if step == "afterreport":
+                    raise KeyboardInterrupt("invented finalization interruption")
+
+            with self.assertRaises(KeyboardInterrupt):
+                finalize(root, hook=interrupt)
+            original_report = (root / "verification.json").read_bytes()
+            no_fetch = Mock(side_effect=AssertionError("finalization recovery cannot fetch"))
+            metadata = resume(root, fetcher=no_fetch, sleep=clock.sleep, now_fn=clock.utc,
+                              monotonic=clock.monotonic)
+            no_fetch.assert_not_called()
+            self.assertEqual(metadata["phase"], "finalized")
+            self.assertEqual((root / "verification.json").read_bytes(), original_report)
+            self.assertEqual(verify_collection(root)["status"], "passed")
+
     def test_live_monotonic_wait_survives_wall_clock_jump(self):
         clock, calls = Clock(), []
         response = self.fetcher(clock, [])

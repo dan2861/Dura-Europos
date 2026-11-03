@@ -289,4 +289,10 @@ def resume(run_dir, *, fetcher=None, sleep=time.sleep, now_fn=utc_now, max_batch
     if max_batches is not None and (type(max_batches) is not int or max_batches < 1):
         raise ValueError("max_batches must be a positive integer")
     with RunState.open(run_dir, now_fn=now_fn) as store:
+        if store.get_internal("finalization") is not None:
+            from .finalize import resume_finalization
+            report = resume_finalization(store)
+            if report["status"] != "passed":
+                raise ValueError("Prepared verification failed; review required before any collection")
+            return store.manifest
         return _process(store, fetcher=fetcher or fetch, sleep=sleep, now_fn=now_fn, max_batches=max_batches, monotonic=monotonic)
