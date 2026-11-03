@@ -1,10 +1,12 @@
 # IDEA JSON backup: production roadmap runbook
 
-Updated 2026-11-03. The three-item MVP pilot and local review are complete. The first production milestone implements **selection discovery and independent selection verification only**. Separate milestone/final reviews are clear and all 153 offline tests pass; Danu reports guided discovery and persisted verification passed; saved-evidence review confirms the frozen union of 33,709 QIDs (33,239 main plus 470 scholarly, no overlap). Production storage/collection/recovery is now the active offline implementation stage. Production item collection/resume, the SQLite journal, archive packaging and deposit checks are later increments. The [MVP runbook](mvp-runbook.md) remains applicable to the prototype.
+Updated 2026-11-03. The three-item MVP pilot and local review are complete. Danu's guided discovery and separate persisted verification passed; saved-evidence review confirms the frozen union of 33,709 QIDs (33,239 main plus 470 scholarly, no overlap). Production storage, collection/recovery, independent verification and finalization are now implemented and reviewed offline. The full suite passes 227 tests. The next guided step is preparing the parent-linked three-item subset in the [collection runbook](collection-runbook.md). Full collection, synthetic scale, archive packaging and deposit checks remain later stages. The [MVP runbook](mvp-runbook.md) remains applicable to the prototype.
 
 Danu runs operational commands with guidance. The assistant runs invented offline TDD tests and makes small commits. Do not infer a live discovery or full backup from passing unit tests. No phase starts another phase automatically.
 
-## First guided discovery
+## Completed guided discovery
+
+The following command already completed for `backup/idea-selection-001`; retain that frozen selection and do not rerun it into the existing directory.
 
 From `/Users/danu/Documents/ChatGPT/Dura-Europos`, Danu runs:
 
@@ -43,8 +45,8 @@ An empty scholarly graph is valid if the combined union is nonempty. A failed gr
 
 Before accepting the selection, review the actual count, endpoints, graph outcomes, attempts and query. Its checksum fixes the population for later collection. Any subsequent membership change will be recorded without silently changing that list.
 
-## Next implementation gate
+## Next guided gate
 
-After Danu's discovery and persisted audit pass and their saved evidence is reviewed, continue offline TDD for production item storage, retry/resume and independent finalization. The MVP one-batch collector is not the full-population collector. Actual production collection and later Yale upload/download remain guided operations. Yale dataset destination, depositor access, metadata and archive retention are still unresolved and must be established before deposit. Publication remains a separate request.
+Discovery and its saved-evidence review are complete. Offline TDD and separate stage/integrated reviews now cover the SQLite store, source-first acceptance, serial retry/resume, independent public audit and exact-byte finalization. Continue with Stop 1 of the [collection runbook](collection-runbook.md), preparing a declared pilot subset from the unchanged production parent. No production-format live item collection has run yet. Actual collection and later Yale upload/download remain guided operations. Yale dataset destination, depositor access, metadata and archive retention are still unresolved and must be established before deposit. Publication remains a separate request.
 
 Implementation/review evidence: [production-log.md](production-log.md); full approved roadmap: [plan.md](plan.md) and [record-layouts.md](record-layouts.md).

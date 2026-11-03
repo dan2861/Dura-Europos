@@ -1,6 +1,6 @@
 # IDEA JSON backup: planned record layouts
 
-Date: 2026-10-28. Companion to the [Plan](plan.md), approved by Danu as the production roadmap with an [MVP-first delivery direction](mvp.md). These production schemas do not yet exist in code and are not all required for the separately labeled first prototype.
+Date: 2026-10-28. Companion to the [Plan](plan.md), approved by Danu as the production roadmap with an [MVP-first delivery direction](mvp.md). Status 2026-11-03: selection, manifest, item/attempt records and collection verification are implemented and offline-reviewed. Package, acquisition and deposit records remain planned. These production schemas are distinct from the separately labeled first prototype; the schema requirements below are unchanged.
 
 ## Common rules
 
