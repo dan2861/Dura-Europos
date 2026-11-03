@@ -15,3 +15,4 @@ Authorization: assistant runs offline TDD and makes small local commits; Danu ex
 | Consistent generated selection time | Frozen timestamp ignored injected discovery clock | Three discovery tests pass with one clock across dispatch, receipts and freeze |
 | Verifiable cooldown boundary | Advancing UTC clock exposed cooldown shorter than one second after recorded completion | Four discovery tests pass; completion timestamp is captured once before deriving the next-dispatch floor |
 | Saving-first discovery stop | Capture saving failure raised generic ValueError/review outcome | Five discovery tests pass; saving_failure is explicit, nonretryable and stops even alongside transient HTTP503 |
+| Selection directory durability review fix | Parent directory fsync failure was never reached before requests | Six discovery tests pass; parent-sync failure prevents every dispatch |

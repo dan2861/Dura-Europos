@@ -4,6 +4,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from scripts.idea_json_backup.client import FetchResult
 from scripts.idea_json_backup.discovery import discover
@@ -36,6 +37,27 @@ class Clock:
 
 
 class DiscoveryTests(unittest.TestCase):
+    def test_selection_parent_sync_failure_prevents_any_dispatch(self):
+        from scripts.idea_json_backup import files
+        original = files._sync
+        clock = Clock()
+        calls = []
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / "selection"
+
+            def sync(path):
+                if Path(path) == root.parent:
+                    raise OSError("selection parent sync failed")
+                return original(path)
+
+            def fetcher(*args, **kwargs):
+                calls.append(True)
+                return clock.result(body("Q1"))
+
+            with patch.object(files, "_sync", side_effect=sync), self.assertRaises(OSError):
+                self.invoke(root, clock, fetcher)
+            self.assertEqual(calls, [])
+
     def test_saving_failure_stops_with_explicit_saving_outcome(self):
         clock = Clock()
         calls = []

@@ -6,6 +6,7 @@ import re
 from scripts.sample_backup.jsoncodec import dumps, loads
 
 from .files import describe, write_bytes
+from . import files
 from .transport import DEFAULT_USER_AGENT
 
 ENDPOINTS = {"main": "https://query.wikidata.org/sparql",
@@ -48,6 +49,7 @@ def new_selection(directory, *, kind="synthetic"):
         raise ValueError("Expected synthetic or production discovery")
     root = Path(directory)
     root.mkdir(parents=True)
+    files._sync(root.parent)
     (root / "sources").mkdir()
     (root / ".state").mkdir()
     body = QUERY.encode()
