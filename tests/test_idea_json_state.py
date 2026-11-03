@@ -1,5 +1,6 @@
 """Durable production run journal tests using invented selection evidence only."""
 import json
+import gzip
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -30,6 +31,61 @@ def temporary_failure(record):
 
 
 class StateTests(unittest.TestCase):
+    def test_internal_staging_symlink_never_writes_outside_run(self):
+        with TemporaryDirectory() as directory:
+            selection, root = self.fixture(directory)
+            outside = Path(directory) / "outside"
+            outside.mkdir()
+            with RunState.create(selection, root) as store:
+                (root / ".state/staging").symlink_to(outside, target_is_directory=True)
+                with self.assertRaises(ValueError):
+                    store.publish("responses/A000001.body", b"preserved")
+                self.assertEqual(list(outside.iterdir()), [])
+
+    def test_changed_valid_selection_during_copy_is_held(self):
+        with TemporaryDirectory() as directory:
+            selection, root = self.fixture(directory)
+            replacement = Path(directory) / "replacement"
+            freeze_fixture_responses(results("Q3", "Q4"), results("Q5"), replacement)
+            original = RunState._copy_selection
+
+            def replace_and_copy(store, source):
+                for path in replacement.rglob("*"):
+                    relative = path.relative_to(replacement)
+                    if relative.parts[0] == ".state" or path.is_dir():
+                        continue
+                    (source / relative).write_bytes(path.read_bytes())
+                original(store, source)
+
+            with patch.object(RunState, "_copy_selection", replace_and_copy), self.assertRaisesRegex(ValueError, "changed"):
+                with RunState.create(selection, root):
+                    pass
+            self.assertFalse((root / ".state/state.sqlite").exists())
+
+    def test_distinct_encoded_source_corruption_stops_reopen_and_local_accept(self):
+        for accepted in (False, True):
+            with self.subTest(accepted=accepted), TemporaryDirectory() as directory:
+                selection, root = self.fixture(directory)
+                with RunState.create(selection, root) as store:
+                    attempt, entities = self.source(store, ["Q1"])
+                    decoded = (root / attempt["decoded"]["path"]).read_bytes()
+                    encoded = gzip.compress(decoded, mtime=0)
+                    attempt["encoded"] = store.publish("responses/A000001.gzip", encoded, complete=True)
+                    attempt["http"]["headers"] = {"content-encoding": ["gzip"], "content-length": [str(len(encoded))]}
+                    store.record_attempt(attempt["attempt_id"], attempt)
+                    if accepted:
+                        store.accept("Q1", attempt["attempt_id"], entities["Q1"], "changed")
+                    store.pause()
+                (root / attempt["encoded"]["path"]).write_bytes(b"corrupt encoded source")
+                if accepted:
+                    with self.assertRaises(ValueError):
+                        with RunState.open(root):
+                            pass
+                else:
+                    with RunState.open(root) as store:
+                        with self.assertRaises(ValueError):
+                            store.accept("Q1", attempt["attempt_id"], entities["Q1"], "changed")
+
     def test_committed_unaccepted_source_requires_local_recovery_before_refetch(self):
         with TemporaryDirectory() as directory:
             selection, root = self.fixture(directory)

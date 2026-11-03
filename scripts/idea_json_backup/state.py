@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 import fcntl
 import hashlib
+import gzip
 import os
 from pathlib import Path, PurePosixPath
 import platform
@@ -16,6 +17,7 @@ import stat
 import sys
 from urllib.parse import quote
 import uuid
+import zlib
 
 from scripts.sample_backup import jsoncodec as codec
 
@@ -75,6 +77,7 @@ def request_settings(user_agent=DEFAULT_USER_AGENT):
 class RunState:
     def __init__(self, root, *, now_fn=utc_now):
         self.root = Path(root)
+        self._root_real = self.root.resolve()
         self.now = now_fn
         self.db = None
         self._lock = None
@@ -87,8 +90,8 @@ class RunState:
         report = verify_selection(selection)
         if report["status"] != "passed":
             raise ValueError("Selection did not pass independent verification: " + "; ".join(report["findings"]))
-        selected = _decode((selection / "selection.json").read_bytes())
-        qids = (selection / "qids.txt").read_text(encoding="utf-8").splitlines()
+        chosen_metadata = (selection / "selection.json").read_bytes()
+        chosen_qids = (selection / "qids.txt").read_bytes()
         obj = cls(run_dir, now_fn=now_fn)
         obj.root.mkdir(parents=True)
         _sync(obj.root.parent)
@@ -98,8 +101,13 @@ class RunState:
         try:
             obj._acquire()
             obj._copy_selection(selection)
+            if ((obj.root / "selection/selection.json").read_bytes() != chosen_metadata
+                    or (obj.root / "selection/qids.txt").read_bytes() != chosen_qids):
+                raise ValueError("Chosen frozen selection changed during initialization")
             if verify_selection(obj.root / "selection")["status"] != "passed":
                 raise ValueError("Copied selection changed during initialization")
+            selected = _decode((obj.root / "selection/selection.json").read_bytes())
+            qids = (obj.root / "selection/qids.txt").read_text(encoding="utf-8").splitlines()
             obj._connect(create=True)
             obj.db.executescript("""
                 CREATE TABLE run (id INTEGER PRIMARY KEY CHECK(id=1), record TEXT NOT NULL);
@@ -167,17 +175,17 @@ class RunState:
             raise ValueError(f"Cannot reopen authoritative journal: {exc}") from exc
 
     def _acquire(self):
-        directory = self.root / ".state"
+        directory = self.internal_path(".state")
         if not directory.is_dir() or directory.is_symlink():
             raise ValueError("Missing or unsafe local state directory")
-        lock_path = directory / "lock"
+        lock_path = self.internal_path(".state/lock")
         if lock_path.is_symlink():
             raise ValueError("Unsafe run lock")
         self._lock = lock_path.open("a+b")
         fcntl.flock(self._lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
 
     def _connect(self, *, create):
-        path = self.root / ".state/state.sqlite"
+        path = self.internal_path(".state/state.sqlite")
         if path.is_symlink() or (path.exists() and (not path.is_file() or path.stat().st_nlink != 1)):
             raise ValueError("Unsafe journal path")
         if create:
@@ -420,6 +428,7 @@ class RunState:
             self._advance()
 
     def path(self, relative, *, parents=False):
+        self._anchor()
         if not isinstance(relative, str) or not relative or "\\" in relative:
             raise ValueError("Unsafe artifact path")
         value = PurePosixPath(relative)
@@ -433,6 +442,37 @@ class RunState:
                 raise ValueError("Linked artifact path")
         if parents:
             cursor.parent.mkdir(parents=True, exist_ok=True)
+        return cursor
+
+    def _anchor(self):
+        if self.root.is_symlink() or self.root.resolve() != self._root_real:
+            raise ValueError("Run directory ancestry changed or is linked")
+
+    def internal_path(self, relative, *, parents=False):
+        """Validate an internal path before every read/write/unlink by callers."""
+        self._anchor()
+        if not isinstance(relative, str) or not relative or "\\" in relative:
+            raise ValueError("Unsafe internal path")
+        value = PurePosixPath(relative)
+        if (value.is_absolute() or ".." in value.parts or str(value) != relative
+                or not value.parts or value.parts[0] != ".state"):
+            raise ValueError("Internal path must be canonical beneath .state")
+        cursor = self.root
+        for index, part in enumerate(value.parts):
+            cursor /= part
+            if cursor.is_symlink():
+                raise ValueError("Linked internal path")
+            if cursor.exists():
+                info = cursor.stat()
+                if (index < len(value.parts) - 1 and not stat.S_ISDIR(info.st_mode)):
+                    raise ValueError("Internal path parent is not a directory")
+                if stat.S_ISREG(info.st_mode) and info.st_nlink != 1:
+                    raise ValueError("Hard-linked internal file")
+                if not (stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode)):
+                    raise ValueError("Nonregular internal path")
+            elif parents and index < len(value.parts) - 1:
+                cursor.mkdir()
+                _sync(cursor.parent)
         return cursor
 
     def publish(self, relative, body, complete=_UNSET):
@@ -454,13 +494,14 @@ class RunState:
             raise FileExistsError(f"Immutable artifact already exists: {relative}")
         if not isinstance(body, bytes):
             raise ValueError("Artifact body must be bytes")
-        staging_dir = self.root / ".state/staging"
+        staging_dir = self.internal_path(".state/staging")
         staging_dir.mkdir(exist_ok=True)
+        staging_dir = self.internal_path(".state/staging")
         _sync(staging_dir.parent)
         identity = uuid.uuid4().hex
         name = f"{attempt_id or 'run'}-{identity}.pending"
         relative_stage = ".state/staging/" + name
-        staging = self.root / relative_stage
+        staging = self.internal_path(relative_stage)
         key = "payload:" + identity
         self.set_internal(key, {"attempt_id": attempt_id, "path": relative,
                                "staging_path": relative_stage, "file": describe(relative, body)})
@@ -472,6 +513,14 @@ class RunState:
         _sync(staging_dir)
         os.link(staging, destination)
         _sync(destination.parent)
+        # The one intended publication link temporarily gives these two names
+        # the same inode. Validate its parent and exact ownership before unlink.
+        self.internal_path(".state/staging")
+        if (staging.is_symlink() or destination.is_symlink()
+                or staging.stat().st_ino != destination.stat().st_ino
+                or staging.stat().st_dev != destination.stat().st_dev
+                or staging.stat().st_nlink != 2):
+            raise ValueError("Staging publication link ownership changed")
         staging.unlink()
         _sync(staging_dir)
         self.set_internal(key, None)
@@ -492,6 +541,32 @@ class RunState:
                 or not isinstance(attempt["decoded"], dict) or attempt["decoded"].get("complete") is not True):
             raise ValueError("Item requires a committed complete usable source")
         body = self._read_descriptor(attempt["decoded"])
+        encoded_descriptor = attempt["encoded"]
+        if (not isinstance(encoded_descriptor, dict) or encoded_descriptor.get("complete") is not True
+                or not isinstance(http.get("headers"), dict)):
+            raise ValueError("Complete source requires encoded receipt evidence")
+        if encoded_descriptor["path"] == attempt["decoded"]["path"]:
+            encoded = body
+            self._check_descriptor(encoded_descriptor, encoded)
+        else:
+            encoded = self._read_descriptor(encoded_descriptor)
+        headers = http["headers"]
+        if any(not isinstance(values, list) or not values or any(not isinstance(v, str) for v in values)
+               for values in headers.values()):
+            raise ValueError("Malformed source header lists")
+        lengths = headers.get("content-length", [])
+        if lengths and (len(lengths) != 1 or not re.fullmatch(r"[0-9]+", lengths[0])
+                        or int(lengths[0]) != len(encoded)):
+            raise ValueError("Encoded source framing differs from receipt")
+        encodings = headers.get("content-encoding", ["identity"])
+        if len(encodings) != 1 or encodings[0].strip().lower() not in ("identity", "gzip"):
+            raise ValueError("Ambiguous or unsupported source encoding")
+        try:
+            decoded = gzip.decompress(encoded) if encodings[0].strip().lower() == "gzip" else encoded
+        except (EOFError, gzip.BadGzipFile, zlib.error) as exc:
+            raise ValueError(f"Encoded source cannot be decoded: {exc}") from exc
+        if decoded != body:
+            raise ValueError("Encoded source does not decode to committed JSON")
         entities = entities_from_response(body, attempt["requested_qids"])
         self._source_cache = (attempt_id, entities)
         return entities
@@ -632,9 +707,12 @@ class RunState:
         if not path.is_file():
             raise ValueError("Accepted artifact is missing")
         body = path.read_bytes()
+        self._check_descriptor(descriptor, body)
+        return body
+
+    def _check_descriptor(self, descriptor, body):
         if len(body) != descriptor["size_bytes"] or hashlib.sha256(body).hexdigest() != descriptor["sha256"]:
             raise ValueError("Immutable artifact checksum mismatch")
-        return body
 
     def _audit_selection(self):
         manifest = self.manifest
