@@ -187,10 +187,11 @@ def recover(store):
         raise ValueError("server_wait_unknown: review required before any new dispatch")
 
 
-def _process(store, *, fetcher, sleep, now_fn, max_batches):
+def _process(store, *, fetcher, sleep, now_fn, max_batches, monotonic):
     if store.manifest["phase"] == "finalized":
         raise ValueError("Finalized run cannot collect or resume")
     completed = 0
+    not_before = monotonic()
     try:
         recover(store)
         while True:
@@ -199,8 +200,11 @@ def _process(store, *, fetcher, sleep, now_fn, max_batches):
             if max_batches is not None and completed >= max_batches:
                 return store.pause()
             global_wait = store.manifest["next_dispatch_at"]
-            if global_wait and global_wait > now_fn():
-                sleep(max(0, (_date(global_wait) - _date(now_fn())).total_seconds()))
+            duration = max(0, not_before - monotonic())
+            if global_wait:
+                duration = max(duration, (_date(global_wait) - _date(now_fn())).total_seconds())
+            if duration > 0:
+                sleep(duration)
             qids = store.eligible(now_fn())
             if not qids:
                 future = [row["next_eligible_at"] for row in store.items()
@@ -259,6 +263,7 @@ def _process(store, *, fetcher, sleep, now_fn, max_batches):
                                         next_eligible_at=attempt["next_eligible_at"])
                 store.record_attempt(attempt_id, attempt)
             finished = store.get_attempt(attempt_id)["finished_at"]
+            not_before = monotonic() + delay
             _retain_wait(store, _after(finished, delay))
             if attempt["error"] and attempt["error"]["code"] == "server_wait_unknown":
                 raise ValueError("server_wait_unknown: review required before new dispatch")
@@ -273,15 +278,15 @@ def _process(store, *, fetcher, sleep, now_fn, max_batches):
 
 
 def collect(selection, run_dir, *, fetcher=None, sleep=time.sleep, now_fn=utc_now,
-            user_agent=DEFAULT_USER_AGENT, max_batches=None):
+            user_agent=DEFAULT_USER_AGENT, max_batches=None, monotonic=time.monotonic):
     if max_batches is not None and (type(max_batches) is not int or max_batches < 1):
         raise ValueError("max_batches must be a positive integer")
     with RunState.create(selection, run_dir, user_agent=user_agent, now_fn=now_fn) as store:
-        return _process(store, fetcher=fetcher or fetch, sleep=sleep, now_fn=now_fn, max_batches=max_batches)
+        return _process(store, fetcher=fetcher or fetch, sleep=sleep, now_fn=now_fn, max_batches=max_batches, monotonic=monotonic)
 
 
-def resume(run_dir, *, fetcher=None, sleep=time.sleep, now_fn=utc_now, max_batches=None):
+def resume(run_dir, *, fetcher=None, sleep=time.sleep, now_fn=utc_now, max_batches=None, monotonic=time.monotonic):
     if max_batches is not None and (type(max_batches) is not int or max_batches < 1):
         raise ValueError("max_batches must be a positive integer")
     with RunState.open(run_dir, now_fn=now_fn) as store:
-        return _process(store, fetcher=fetcher or fetch, sleep=sleep, now_fn=now_fn, max_batches=max_batches)
+        return _process(store, fetcher=fetcher or fetch, sleep=sleep, now_fn=now_fn, max_batches=max_batches, monotonic=monotonic)

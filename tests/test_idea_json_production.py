@@ -25,6 +25,7 @@ def item(qid):
 class Clock:
     def __init__(self):
         self.seconds = 0
+        self.elapsed = 0
 
     def utc(self):
         return (datetime(2026, 11, 3, 12, tzinfo=timezone.utc) + timedelta(seconds=self.seconds)).strftime(
@@ -32,6 +33,10 @@ class Clock:
 
     def sleep(self, duration):
         self.seconds += duration
+        self.elapsed += duration
+
+    def monotonic(self):
+        return self.elapsed
 
     def result(self, body, *, status=200, headers=None, error=None):
         return FetchResult(body, body, status, headers or {}, self.utc(), self.utc(), True,
@@ -39,6 +44,32 @@ class Clock:
 
 
 class ProductionTests(unittest.TestCase):
+    def test_live_monotonic_wait_survives_wall_clock_jump(self):
+        clock, calls = Clock(), []
+        response = self.fetcher(clock, [])
+        from scripts.idea_json_backup import production
+        original = production._retain_wait
+        jumped = []
+
+        def jump(store, until):
+            original(store, until)
+            if not jumped:
+                jumped.append(True)
+                clock.seconds += 1000
+
+        def server(*args, **kwargs):
+            calls.append(clock.elapsed)
+            value = response(*args, **kwargs)
+            value.headers = {"retry-after": ["20"]}
+            return value
+
+        with TemporaryDirectory() as directory:
+            base = Path(directory)
+            with patch.object(production, "_retain_wait", side_effect=jump):
+                collect(self.selection(base, [f"Q{i}" for i in range(1, 52)]), base / "run",
+                        fetcher=server, sleep=clock.sleep, now_fn=clock.utc, monotonic=clock.monotonic)
+            self.assertEqual(calls, [0, 20])
+
     def test_retry_eligibility_is_anchored_to_recorded_local_finish(self):
         class TickingClock(Clock):
             def __init__(self):
@@ -57,7 +88,7 @@ class ProductionTests(unittest.TestCase):
             root = base / "run"
             collect(self.selection(base, ["Q1"]), root,
                     fetcher=lambda *a, **k: clock.result(b'{"error":{"code":"maxlag","info":"busy"}}'),
-                    sleep=clock.sleep, now_fn=clock.utc, max_batches=1)
+                    sleep=clock.sleep, now_fn=clock.utc, monotonic=clock.monotonic, max_batches=1)
             with RunState.open(root, now_fn=clock.utc) as store:
                 attempt = store.attempts()[0]
                 finished = datetime.fromisoformat(attempt["finished_at"].replace('Z', '+00:00'))
@@ -76,11 +107,11 @@ class ProductionTests(unittest.TestCase):
             base = Path(directory)
             root = base / "run"
             collect(self.selection(base, ["Q1"]), root, fetcher=failing, sleep=clock.sleep,
-                    now_fn=clock.utc, max_batches=1)
+                    now_fn=clock.utc, monotonic=clock.monotonic, max_batches=1)
             self.assertEqual(clock.seconds, 0)
-            resume(root, fetcher=failing, sleep=clock.sleep, now_fn=clock.utc, max_batches=1)
-            resume(root, fetcher=failing, sleep=clock.sleep, now_fn=clock.utc, max_batches=1)
-            resume(root, fetcher=failing, sleep=clock.sleep, now_fn=clock.utc)
+            resume(root, fetcher=failing, sleep=clock.sleep, now_fn=clock.utc, monotonic=clock.monotonic, max_batches=1)
+            resume(root, fetcher=failing, sleep=clock.sleep, now_fn=clock.utc, monotonic=clock.monotonic, max_batches=1)
+            resume(root, fetcher=failing, sleep=clock.sleep, now_fn=clock.utc, monotonic=clock.monotonic)
             self.assertEqual(calls, [0, 5, 15])
             with RunState.open(root, now_fn=clock.utc) as store:
                 self.assertEqual(len(store.get_item("Q1")["attempt_ids"]), 3)
@@ -100,8 +131,8 @@ class ProductionTests(unittest.TestCase):
             selected = self.selection(base, [f"Q{i}" for i in range(1, 52)])
             root = base / "run"
             with patch("scripts.idea_json_backup.production._retain_wait", side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
-                collect(selected, root, fetcher=server, sleep=clock.sleep, now_fn=clock.utc)
-            resume(root, fetcher=response, sleep=clock.sleep, now_fn=clock.utc)
+                collect(selected, root, fetcher=server, sleep=clock.sleep, now_fn=clock.utc, monotonic=clock.monotonic)
+            resume(root, fetcher=response, sleep=clock.sleep, now_fn=clock.utc, monotonic=clock.monotonic)
             self.assertEqual([stamp for stamp, qids in calls], [0, 30])
 
     def selection(self, base, qids):
@@ -129,7 +160,7 @@ class ProductionTests(unittest.TestCase):
             base = Path(directory)
             selected = self.selection(base, [f"Q{i}" for i in range(1, 56)])
             root = base / "run"
-            collect(selected, root, fetcher=self.fetcher(clock, calls), sleep=clock.sleep, now_fn=clock.utc)
+            collect(selected, root, fetcher=self.fetcher(clock, calls), sleep=clock.sleep, now_fn=clock.utc, monotonic=clock.monotonic)
             self.assertEqual([len(qids) for stamp, qids in calls], [50, 5])
             self.assertEqual([stamp for stamp, qids in calls], [0, 1])
             self.assertEqual(len(snapshots), 2)
@@ -149,9 +180,9 @@ class ProductionTests(unittest.TestCase):
             selected = self.selection(base, ["Q1", "Q2"])
             root = base / "run"
             with patch.object(RunState, "accept", interrupt_second), self.assertRaises(KeyboardInterrupt):
-                collect(selected, root, fetcher=self.fetcher(clock, calls), sleep=clock.sleep, now_fn=clock.utc)
+                collect(selected, root, fetcher=self.fetcher(clock, calls), sleep=clock.sleep, now_fn=clock.utc, monotonic=clock.monotonic)
             no_fetch = Mock(side_effect=AssertionError("committed source must recover locally"))
-            resume(root, fetcher=no_fetch, sleep=clock.sleep, now_fn=clock.utc)
+            resume(root, fetcher=no_fetch, sleep=clock.sleep, now_fn=clock.utc, monotonic=clock.monotonic)
             no_fetch.assert_not_called()
             self.assertEqual(verify_collection(root)["status"], "passed")
 
@@ -169,5 +200,5 @@ class ProductionTests(unittest.TestCase):
                 store.dispatch(attempt["attempt_id"])
             no_fetch = Mock(side_effect=AssertionError("lost header wait must hold fresh QIDs too"))
             with self.assertRaisesRegex(ValueError, "server_wait_unknown"):
-                resume(root, fetcher=no_fetch, sleep=clock.sleep, now_fn=clock.utc)
+                resume(root, fetcher=no_fetch, sleep=clock.sleep, now_fn=clock.utc, monotonic=clock.monotonic)
             no_fetch.assert_not_called()
