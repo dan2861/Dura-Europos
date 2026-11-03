@@ -667,6 +667,9 @@ class RunState:
             self.db.execute("DELETE FROM internal WHERE key='finalization'")
 
     def _audit_journal(self):
+        tables = {row[0] for row in self.db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if not {"run", "items", "attempts", "attempt_items", "internal"} <= tables:
+            raise ValueError("Authoritative journal schema is incomplete")
         manifest = self.manifest
         if set(manifest) != MANIFEST_KEYS or manifest["format"] != "idea-json-backup" or manifest["format_version"] != "1.0.0":
             raise ValueError("Invalid journal metadata contract")
@@ -701,8 +704,20 @@ class RunState:
                 raise ValueError("Attempt quota/link mismatch")
         if manifest["counts"] != counts:
             raise ValueError("Journal counts disagree")
+        for attempt in self.attempts():
+            if not isinstance(attempt, dict) or set(attempt) != ATTEMPT_KEYS:
+                raise ValueError("Authoritative attempt record has invalid keys")
+            linked = [row[0] for row in self.db.execute(
+                "SELECT qid FROM attempt_items WHERE attempt_id=? ORDER BY ordinal", (attempt["attempt_id"],))]
+            if (not 1 <= len(linked) <= 50 or attempt["requested_qids"] != linked
+                    or attempt["outcome"] not in ("reserved", "succeeded", "mixed", "transient_failure",
+                                                  "review_required", "interrupted", "saving_failure")):
+                raise ValueError("Authoritative attempt scope/outcome disagrees with reserved links")
+            if not isinstance(attempt["diagnostics"], list):
+                raise ValueError("Invalid journal diagnostics")
 
     def _read_descriptor(self, descriptor):
+        self._validate_descriptor(descriptor)
         path = self.path(descriptor["path"])
         if not path.is_file():
             raise ValueError("Accepted artifact is missing")
@@ -710,7 +725,17 @@ class RunState:
         self._check_descriptor(descriptor, body)
         return body
 
+    def _validate_descriptor(self, descriptor):
+        if (not isinstance(descriptor, dict)
+                or set(descriptor) not in ({"path", "size_bytes", "sha256"}, {"path", "size_bytes", "sha256", "complete"})
+                or type(descriptor["size_bytes"]) is not int or descriptor["size_bytes"] < 0
+                or not isinstance(descriptor["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", descriptor["sha256"])
+                or ("complete" in descriptor and descriptor["complete"] is not None
+                    and type(descriptor["complete"]) is not bool)):
+            raise ValueError("Invalid immutable artifact descriptor")
+
     def _check_descriptor(self, descriptor, body):
+        self._validate_descriptor(descriptor)
         if len(body) != descriptor["size_bytes"] or hashlib.sha256(body).hexdigest() != descriptor["sha256"]:
             raise ValueError("Immutable artifact checksum mismatch")
 
@@ -724,24 +749,58 @@ class RunState:
 
     def _audit_accepted(self):
         accepted = [item for item in self.items() if item["status"] == "accepted"]
-        # Group by source so each batch response is read/parsed only once.
-        for item in sorted(accepted, key=lambda value: value["source_response_id"]):
-            qid = item["requested_qid"]
-            attempt_id = item["source_response_id"]
-            entity = require_entity(self._source_entities(attempt_id), qid)
-            attempt = self.get_attempt(attempt_id)
-            result = next((row for row in attempt["item_results"] if row["qid"] == qid), None)
-            if (item["returned_qid"] != qid or item["source_entity_key"] != qid
-                    or item["lastrevid"] != int(entity["lastrevid"].token)
-                    or item["modified"] != entity["modified"]
-                    or item["retrieved_at"] != attempt["response_received_at"]
-                    or item["membership_at_retrieval"] not in ("matches", "changed")
-                    or item["error"] is not None or item["next_eligible_at"] is not None
-                    or not result or result["outcome"] != "accepted" or result["returned_qid"] != qid):
-                raise ValueError("Accepted item provenance differs from its immutable source")
-            body = self._read_descriptor(item["item"])
-            if not codec.equal(codec.loads(body), entity):
-                raise ValueError("Accepted item content changed")
+        grouped = {}
+        for item in accepted:
+            grouped.setdefault(item["source_response_id"], []).append(item)
+        seen = set()
+        # One source batch at a time: audit every committed body, even failed
+        # attempts, without retaining all source bytes or rereading per item.
+        for attempt in self.attempts():
+            attempt_id = attempt["attempt_id"]
+            seen.add(attempt_id)
+            audited = {}
+            entities = None
+            if attempt["outcome"] in ("succeeded", "mixed"):
+                entities = self._source_entities(attempt_id)
+                for field in ("encoded", "decoded"):
+                    descriptor = attempt[field]
+                    audited[descriptor["path"]] = (descriptor["size_bytes"], descriptor["sha256"])
+            descriptors = [attempt[role] for role in ("encoded", "decoded") if attempt[role] is not None]
+            for diagnosis in attempt["diagnostics"]:
+                if (not isinstance(diagnosis, dict) or set(diagnosis) != {"role", "file", "explanation"}
+                        or not all(isinstance(diagnosis[field], str) and diagnosis[field]
+                                   for field in ("role", "explanation"))):
+                    raise ValueError("Invalid committed diagnostic record")
+                descriptors.append(diagnosis["file"])
+            for descriptor in descriptors:
+                self._validate_descriptor(descriptor)
+                name = descriptor["path"]
+                identity = (descriptor["size_bytes"], descriptor["sha256"])
+                if name in audited:
+                    if audited[name] != identity:
+                        raise ValueError("Shared committed artifact descriptors disagree")
+                else:
+                    self._read_descriptor(descriptor)
+                    audited[name] = identity
+            for item in grouped.get(attempt_id, []):
+                qid = item["requested_qid"]
+                if entities is None:
+                    raise ValueError("Accepted item refers to an unusable attempt")
+                entity = require_entity(entities, qid)
+                result = next((row for row in attempt["item_results"] if row["qid"] == qid), None)
+                if (item["returned_qid"] != qid or item["source_entity_key"] != qid
+                        or item["lastrevid"] != int(entity["lastrevid"].token)
+                        or item["modified"] != entity["modified"]
+                        or item["retrieved_at"] != attempt["response_received_at"]
+                        or item["membership_at_retrieval"] not in ("matches", "changed")
+                        or item["error"] is not None or item["next_eligible_at"] is not None
+                        or not result or result["outcome"] != "accepted" or result["returned_qid"] != qid):
+                    raise ValueError("Accepted item provenance differs from its immutable source")
+                body = self._read_descriptor(item["item"])
+                if not codec.equal(codec.loads(body), entity):
+                    raise ValueError("Accepted item content changed")
+        if set(grouped) - seen:
+            raise ValueError("Accepted item refers to an absent attempt")
         self._source_cache = None
 
     def close(self):

@@ -31,6 +31,53 @@ def temporary_failure(record):
 
 
 class StateTests(unittest.TestCase):
+    def test_invalid_committed_descriptor_shape_is_reported_as_journal_failure(self):
+        with TemporaryDirectory() as directory:
+            selection, root = self.fixture(directory)
+            with RunState.create(selection, root) as store:
+                attempt = store.reserve(["Q1"], request(store, ["Q1"]))
+                attempt.update(outcome="review_required", encoded=[])
+                store.record_attempt(attempt["attempt_id"], attempt)
+            with self.assertRaises(ValueError):
+                with RunState.open(root):
+                    pass
+
+    def test_malformed_authoritative_attempt_record_stops_reopen(self):
+        with TemporaryDirectory() as directory:
+            selection, root = self.fixture(directory)
+            with RunState.create(selection, root) as store:
+                attempt = store.reserve(["Q1"], request(store, ["Q1"]))
+                store.db.execute("UPDATE attempts SET record='{}' WHERE attempt_id=?", (attempt["attempt_id"],))
+            with self.assertRaises(ValueError):
+                with RunState.open(root):
+                    pass
+
+    def test_failed_attempt_and_diagnostic_corruption_stop_reopen_before_new_work(self):
+        for role in ("encoded", "decoded", "diagnostic"):
+            with self.subTest(role=role), TemporaryDirectory() as directory:
+                selection, root = self.fixture(directory)
+                with RunState.create(selection, root) as store:
+                    attempt = store.reserve(["Q1"], request(store, ["Q1"]))
+                    store.dispatch(attempt["attempt_id"])
+                    attempt = store.get_attempt(attempt["attempt_id"])
+                    encoded = store.publish("responses/A000001.failure.encoded", b"busy encoded", complete=True)
+                    decoded = store.publish("responses/A000001.failure.decoded", b"busy decoded", complete=True)
+                    diagnostic = store.publish("diagnostics/A000001.partial", b"partial evidence", complete=None)
+                    failure = {"stage": "transport", "code": "busy", "message": "Invented HTTP503", "retryable": True}
+                    attempt.update(http={"status_code": 503, "headers": {}}, headers_observed=True,
+                                   headers_received_at=store.now(), response_received_at=store.now(),
+                                   response_elapsed_ms=1, receipt_complete=True, finished_at=store.now(),
+                                   outcome="transient_failure", error=failure, encoded=encoded, decoded=decoded,
+                                   diagnostics=[{"role": "partial", "file": diagnostic, "explanation": "Invented partial evidence"}])
+                    store.record_attempt(attempt["attempt_id"], attempt)
+                    store.unresolve("Q1", failure)
+                    store.pause()
+                target = {"encoded": encoded, "decoded": decoded, "diagnostic": diagnostic}[role]
+                (root / target["path"]).write_bytes(b"changed evidence")
+                with self.assertRaises(ValueError):
+                    with RunState.open(root):
+                        pass
+
     def test_internal_staging_symlink_never_writes_outside_run(self):
         with TemporaryDirectory() as directory:
             selection, root = self.fixture(directory)
@@ -77,13 +124,9 @@ class StateTests(unittest.TestCase):
                         store.accept("Q1", attempt["attempt_id"], entities["Q1"], "changed")
                     store.pause()
                 (root / attempt["encoded"]["path"]).write_bytes(b"corrupt encoded source")
-                if accepted:
-                    with self.assertRaises(ValueError):
-                        with RunState.open(root):
-                            pass
-                else:
+                with self.assertRaises(ValueError):
                     with RunState.open(root) as store:
-                        with self.assertRaises(ValueError):
+                        if not accepted:
                             store.accept("Q1", attempt["attempt_id"], entities["Q1"], "changed")
 
     def test_committed_unaccepted_source_requires_local_recovery_before_refetch(self):
