@@ -4,6 +4,8 @@ Reviewed 2026-11-03. **Offline collection-stage reviews are clear for the guided
 
 The saved production parent `backup/idea-selection-001` contains the frozen 33,709-QID population. The earlier MVP pilot tested prototype preservation; it did not exercise this production journal, recovery or finalization workflow. Start with a parent-linked three-item production pilot.
 
+Checkpoint 2026-11-03: Danu reported Stop 1 creation and separate saved-selection verification passed with no findings, count 3. Read-only preflight confirmed the exact declared subset, unchanged copied parent evidence/descriptors and absent `backup/idea-pilot-run-001`. Current official access/module/etiquette/maxlag guidance has been rechecked for this bounded pilot; see the [Research update](research.md#2026-11-03-production-pilot-access-recheck). The next guided command is the one-batch pilot below; it has not been executed by the assistant.
+
 Run commands from `/Users/danu/Documents/ChatGPT/Dura-Europos`. Every new output directory must be absent; do not create it beforehand or reuse an earlier attempt.
 
 ## Stop 1: prepare the exact parent-linked subset
