@@ -36,6 +36,25 @@ class Clock:
 
 
 class DiscoveryTests(unittest.TestCase):
+    def test_saving_failure_stops_with_explicit_saving_outcome(self):
+        clock = Clock()
+        calls = []
+
+        def fetcher(*args, **options):
+            calls.append(clock.seconds)
+            return clock.result(b"partial", status=503, complete=False,
+                                error="durable capture write failed", stage="saving")
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / "selection"
+            with self.assertRaises(OSError):
+                self.invoke(root, clock, fetcher)
+            metadata = json.loads((root / "selection.json").read_bytes())
+            self.assertEqual(calls, [0])
+            self.assertEqual(metadata["sources"][0]["attempts"][0]["outcome"], "saving_failure")
+            self.assertEqual(metadata["sources"][0]["attempts"][0]["error"]["retryable"], False)
+            self.assertIsNone(metadata["qid_list"])
+
     def test_cooldown_is_measured_from_recorded_attempt_completion(self):
         class TickingClock(Clock):
             def __init__(self):

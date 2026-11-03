@@ -111,13 +111,16 @@ def discover(output_dir, *, kind="production", user_agent=DEFAULT_USER_AGENT,
                     source.update(outcome="succeeded", finished_at=finished)
                     checkpoint(root, metadata)
                     break
-                attempt.update(outcome="transient_failure" if retryable else "review_required",
+                attempt.update(outcome="saving_failure" if stage == "saving" else
+                               ("transient_failure" if retryable else "review_required"),
                                error={"stage": stage, "code": code, "message": problem, "retryable": retryable})
                 if retryable and number < 3:
                     checkpoint(root, metadata)
                     continue
                 source.update(outcome="failed", finished_at=utcnow())
                 checkpoint(root, metadata)
+                if stage == "saving":
+                    raise OSError(problem)
                 raise ValueError(problem)
             except BaseException as exc:
                 if source["outcome"] != "failed":
