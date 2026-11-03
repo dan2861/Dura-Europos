@@ -244,15 +244,19 @@ def _process(store, *, fetcher, sleep, now_fn, max_batches):
             retry = any(row["error"] and row["error"]["retryable"] for row in attempt["item_results"])
             floor = max(5 if len(store.get_item(q)["attempt_ids"]) == 1 else 10 for q in qids) if retry else 1
             delay = max(1, server_wait, floor)
-            attempt["next_eligible_at"] = _after(now_fn(), delay) if retry else None
-            store.record_attempt(attempt_id, attempt)  # complete source proof precedes every item publication
             if attempt["outcome"] in ("succeeded", "mixed"):
+                store.record_attempt(attempt_id, attempt)  # complete source proof precedes every item publication
                 _complete_source(store, attempt)
             else:
                 for row in attempt["item_results"]:
                     store.unresolve(row["qid"], row["error"], returned_qid=row["returned_qid"],
-                                    next_eligible_at=attempt["next_eligible_at"])
+                                    next_eligible_at=None)
                 attempt["finished_at"] = now_fn()
+                attempt["next_eligible_at"] = _after(attempt["finished_at"], delay) if retry else None
+                if retry:
+                    for row in attempt["item_results"]:
+                        store.unresolve(row["qid"], row["error"], returned_qid=row["returned_qid"],
+                                        next_eligible_at=attempt["next_eligible_at"])
                 store.record_attempt(attempt_id, attempt)
             finished = store.get_attempt(attempt_id)["finished_at"]
             _retain_wait(store, _after(finished, delay))

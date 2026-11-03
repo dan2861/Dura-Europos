@@ -39,6 +39,32 @@ class Clock:
 
 
 class ProductionTests(unittest.TestCase):
+    def test_retry_eligibility_is_anchored_to_recorded_local_finish(self):
+        class TickingClock(Clock):
+            def __init__(self):
+                super().__init__()
+                self.ticks = 0
+
+            def utc(self):
+                self.ticks += 1
+                return (datetime(2026, 11, 3, 12, tzinfo=timezone.utc)
+                        + timedelta(seconds=self.seconds, microseconds=self.ticks * 1000)).strftime(
+                            "%Y-%m-%dT%H:%M:%S.%fZ")
+
+        clock = TickingClock()
+        with TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / "run"
+            collect(self.selection(base, ["Q1"]), root,
+                    fetcher=lambda *a, **k: clock.result(b'{"error":{"code":"maxlag","info":"busy"}}'),
+                    sleep=clock.sleep, now_fn=clock.utc, max_batches=1)
+            with RunState.open(root, now_fn=clock.utc) as store:
+                attempt = store.attempts()[0]
+                finished = datetime.fromisoformat(attempt["finished_at"].replace('Z', '+00:00'))
+                eligible = datetime.fromisoformat(attempt["next_eligible_at"].replace('Z', '+00:00'))
+                self.assertGreaterEqual((eligible - finished).total_seconds(), 5)
+                self.assertEqual(store.get_item("Q1")["next_eligible_at"], attempt["next_eligible_at"])
+
     def test_bounded_pause_is_immediate_and_quota_survives_restarts(self):
         clock, calls = Clock(), []
 
