@@ -1,17 +1,20 @@
 """Synthetic production runs: real journal/files, invented captures, no live calls."""
 import json
+import gzip
+from functools import partial
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
-from scripts.idea_json_backup.client import FetchResult
+from scripts.idea_json_backup.client import FetchResult, fetch, network_worker
 from scripts.idea_json_backup.production import collect, resume
 from scripts.idea_json_backup.state import RunState
 from scripts.idea_json_backup.selection import freeze_fixture_responses
 from scripts.idea_json_backup.collection_verify import verify_collection
 from scripts.idea_json_backup.finalize import finalize
+from scripts.sample_backup import jsoncodec as codec
 
 
 def graph(*qids):
@@ -21,6 +24,32 @@ def graph(*qids):
 
 def item(qid):
     return {"id": qid, "type": "item", "lastrevid": 7, "modified": "2026-11-03T12:00:00Z", "claims": {}}
+
+
+def production_fixture_worker(request, timeout_seconds, directory):
+    class Response:
+        status = 200
+
+        def __init__(self):
+            entities = {q: dict(item(q), future={"identifier": "0007", "number": codec.Number("1.23000000000000000001")})
+                        for q in reversed(request["parameters"]["ids"].split("|"))}
+            self.value = gzip.compress(codec.dumps({"success": 1, "entities": entities}).encode(), mtime=0)
+            self.headers = {"Content-Length": str(len(self.value)), "Content-Encoding": "gzip"}
+
+        def read(self, size):
+            value, self.value = self.value[:11], self.value[11:]
+            return value
+
+        def close(self):
+            pass
+
+    class Transport:
+        def open(self, *args):
+            return Response()
+
+    with patch("scripts.idea_json_backup.client.HTTPTransport", return_value=Transport()), patch(
+            "socket.socket.connect", side_effect=AssertionError("No external network in invented pipeline")):
+        network_worker(request, timeout_seconds, directory)
 
 
 class Clock:
@@ -45,6 +74,23 @@ class Clock:
 
 
 class ProductionTests(unittest.TestCase):
+    def test_spawned_capture_journal_audit_and_immutable_finalization(self):
+        with TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / "run"
+            collect(self.selection(base, ["Q1", "Q2", "Q10"]), root,
+                    fetcher=partial(fetch, worker=production_fixture_worker))
+            self.assertEqual(verify_collection(root)["status"], "passed")
+            self.assertIn(b'1.23000000000000000001', (root / 'items/Q10.json').read_bytes())
+            self.assertEqual(finalize(root)["status"], "passed")
+            before = {p.relative_to(root): p.read_bytes() for p in root.rglob('*')
+                      if p.is_file() and '.state' not in p.relative_to(root).parts}
+            with self.assertRaisesRegex(ValueError, "Finalized"):
+                resume(root, fetcher=Mock(side_effect=AssertionError("finalized run cannot fetch")))
+            self.assertEqual(verify_collection(root)["status"], "passed")
+            self.assertEqual(before, {p.relative_to(root): p.read_bytes() for p in root.rglob('*')
+                                    if p.is_file() and '.state' not in p.relative_to(root).parts})
+
     def test_published_item_and_owned_staging_link_recover_without_refetch(self):
         from scripts.idea_json_backup import state
         original = state._sync
