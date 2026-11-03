@@ -13,3 +13,4 @@ Authorization: assistant runs offline TDD and makes small local commits; Danu ex
 | Independent synthetic selection audit | New verifier absent | Seven hand-built fixture tests pass, including altered union with refreshed hashes, schema/path/query corruption and >50 QIDs |
 | Generic capture supervision | Missing fetch entry point; known process-start failure initially mislabeled as saving | Eighteen offline tests pass; parentdeadline, durable dispatch/header receipt, lost-header holds, partial/empty capture and process cleanup |
 | Consistent generated selection time | Frozen timestamp ignored injected discovery clock | Three discovery tests pass with one clock across dispatch, receipts and freeze |
+| Verifiable cooldown boundary | Advancing UTC clock exposed cooldown shorter than one second after recorded completion | Four discovery tests pass; completion timestamp is captured once before deriving the next-dispatch floor |

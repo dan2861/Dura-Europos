@@ -101,13 +101,14 @@ def discover(output_dir, *, kind="production", user_agent=DEFAULT_USER_AGENT,
                 if result.headers_observed is None:
                     problem, code = problem or "Receipt headers lost after possible dispatch", "server_wait_unknown"
                 wait = max(1, server_wait, (5 if number == 1 else 10) if retryable else 0)
+                finished = utcnow()
                 not_before = monotonic() + wait
-                attempt["next_dispatch_at"] = (datetime.fromisoformat(utcnow().replace("Z", "+00:00"))
+                attempt["next_dispatch_at"] = (datetime.fromisoformat(finished.replace("Z", "+00:00"))
                                                 + timedelta(seconds=wait)).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-                attempt["finished_at"] = utcnow()
+                attempt["finished_at"] = finished
                 if problem is None:
                     attempt["outcome"] = "succeeded"
-                    source.update(outcome="succeeded", finished_at=utcnow())
+                    source.update(outcome="succeeded", finished_at=finished)
                     checkpoint(root, metadata)
                     break
                 attempt.update(outcome="transient_failure" if retryable else "review_required",

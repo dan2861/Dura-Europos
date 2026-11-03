@@ -36,6 +36,28 @@ class Clock:
 
 
 class DiscoveryTests(unittest.TestCase):
+    def test_cooldown_is_measured_from_recorded_attempt_completion(self):
+        class TickingClock(Clock):
+            def __init__(self):
+                super().__init__()
+                self.ticks = 0
+
+            def utc(self):
+                self.ticks += 1
+                return (datetime(2026, 11, 3, 12, tzinfo=timezone.utc)
+                        + timedelta(seconds=self.seconds, microseconds=self.ticks * 1000)).strftime(
+                            "%Y-%m-%dT%H:%M:%S.%fZ")
+
+        clock = TickingClock()
+        with TemporaryDirectory() as directory:
+            metadata = self.invoke(Path(directory) / "selection", clock,
+                                   lambda *args, **kwargs: clock.result(body("Q1")))
+            for source in metadata["sources"]:
+                attempt = source["attempts"][0]
+                start = datetime.fromisoformat(attempt["finished_at"].replace('Z', '+00:00'))
+                end = datetime.fromisoformat(attempt["next_dispatch_at"].replace('Z', '+00:00'))
+                self.assertGreaterEqual((end - start).total_seconds(), 1)
+
     def invoke(self, root, clock, fetcher):
         return discover(root, kind="synthetic", fetcher=fetcher, sleep=clock.sleep,
                         monotonic=clock.monotonic, utcnow=clock.utc)
