@@ -2,7 +2,9 @@
 from datetime import datetime, timedelta
 from email.utils import parsedate_to_datetime
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+import hashlib
+import stat
 import time
 import re
 
@@ -77,12 +79,32 @@ def _recover_payload_intents(store):
             raise ValueError("Unowned interrupted publication requires review")
         attempt = store.get_attempt(attempt_id)
         relative = intent["staging_path"]
-        if not relative.startswith(".state/staging/" ) or ".." in Path(relative).parts:
+        if (not relative.startswith(".state/staging/") or ".." in Path(relative).parts
+                or str(PurePosixPath(relative)) != relative):
             raise ValueError("Unsafe interrupted staging intent")
-        stage = store.internal_path(relative)
+        # Publication can legitimately leave this one owned staging hard link.
+        # Validate ancestry first, then require the exact intended destination pair.
+        stage = store.internal_path(str(PurePosixPath(relative).parent)) / PurePosixPath(relative).name
         if stage.is_symlink():
             raise ValueError("Linked interrupted staging evidence")
         if stage.exists():
+            status = stage.stat()
+            if not stat.S_ISREG(status.st_mode):
+                raise ValueError("Nonregular owned staging evidence")
+            if status.st_nlink != 1:
+                destination_name = PurePosixPath(intent["path"])
+                if (destination_name.is_absolute() or '..' in destination_name.parts
+                        or str(destination_name) != intent["path"]):
+                    raise ValueError("Unsafe owned publication destination")
+                destination = store.path(str(destination_name.parent)) / destination_name.name
+                if destination.is_symlink() or not destination.is_file():
+                    raise ValueError("Owned staging link lacks its intended destination")
+                target = destination.stat()
+                data = stage.read_bytes()
+                if (status.st_nlink != 2 or (status.st_dev, status.st_ino) != (target.st_dev, target.st_ino)
+                        or len(data) != intent["file"]["size_bytes"]
+                        or hashlib.sha256(data).hexdigest() != intent["file"]["sha256"]):
+                    raise ValueError("Owned publication link disagrees with its durable intent")
             _diagnostic(store, attempt, f"diagnostics/{attempt_id}-{key.split(':', 1)[1]}.pending",
                         stage.read_bytes(), "Interrupted owned publication; bytes retained without promoting completeness")
             store.record_attempt(attempt_id, attempt)
@@ -120,7 +142,8 @@ def _recover_reserved(store, attempt):
     elif attempt["dispatch_started_at"] is None:
         attempt["headers_observed"] = False
     for path in sorted(folder.glob("*")) if folder.is_dir() else []:
-        if path.is_file() and not path.is_symlink():
+        path = store.internal_path(path.relative_to(store.root).as_posix())
+        if path.is_file():
             _diagnostic(store, attempt, f"diagnostics/{attempt_id}-{path.name}", path.read_bytes(),
                         "Recovered worker evidence; no complete source was committed")
     for role in ("encoded", "decoded"):

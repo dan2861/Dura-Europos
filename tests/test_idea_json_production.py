@@ -45,6 +45,29 @@ class Clock:
 
 
 class ProductionTests(unittest.TestCase):
+    def test_published_item_and_owned_staging_link_recover_without_refetch(self):
+        from scripts.idea_json_backup import state
+        original = state._sync
+        clock, calls = Clock(), []
+
+        def interrupt_after_link(path):
+            if Path(path).name == "items":
+                raise KeyboardInterrupt("invented interruption after no-clobber link")
+            return original(path)
+
+        with TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / "run"
+            with patch.object(state, "_sync", side_effect=interrupt_after_link), self.assertRaises(KeyboardInterrupt):
+                collect(self.selection(base, ["Q1"]), root, fetcher=self.fetcher(clock, calls),
+                        sleep=clock.sleep, now_fn=clock.utc, monotonic=clock.monotonic)
+            self.assertEqual((root / "items/Q1.json").stat().st_nlink, 2)
+            no_fetch = Mock(side_effect=AssertionError("owned publication must recover locally"))
+            resume(root, fetcher=no_fetch, sleep=clock.sleep, now_fn=clock.utc, monotonic=clock.monotonic)
+            no_fetch.assert_not_called()
+            self.assertEqual((root / "items/Q1.json").stat().st_nlink, 1)
+            self.assertEqual(verify_collection(root)["status"], "passed")
+
     def test_linked_internal_capture_cannot_supply_recovery_headers(self):
         clock = Clock()
         with TemporaryDirectory() as directory:
