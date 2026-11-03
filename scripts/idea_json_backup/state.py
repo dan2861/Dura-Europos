@@ -19,7 +19,7 @@ import uuid
 
 from scripts.sample_backup import jsoncodec as codec
 
-from .contract import valid_utc
+from .contract import entities_from_response, require_entity, valid_utc
 from .files import describe, write_bytes, _sync
 from .selection_verify import verify_selection
 from .transport import DEFAULT_USER_AGENT
@@ -32,6 +32,7 @@ ATTEMPT_KEYS = {"attempt_id", "requested_qids", "reserved_at", "dispatch_started
                 "headers_observed", "response_received_at", "response_elapsed_ms", "receipt_complete",
                 "finished_at", "recovered_at", "request", "http", "encoded", "decoded", "diagnostics",
                 "api_error", "warnings", "outcome", "item_results", "next_eligible_at", "error"}
+_UNSET = object()
 
 
 def utc_now():
@@ -110,6 +111,7 @@ class RunState:
                     qid TEXT NOT NULL REFERENCES items(qid), ordinal INTEGER NOT NULL,
                     PRIMARY KEY(attempt_id,qid));
                 CREATE INDEX attempt_qid ON attempt_items(qid);
+                CREATE TABLE internal (key TEXT PRIMARY KEY, value TEXT NOT NULL);
             """)
             created = obj.now()
             if not valid_utc(created):
@@ -255,6 +257,26 @@ class RunState:
             manifest.update(fields)
             self._put_manifest(manifest)
 
+    def get_internal(self, key, default=None):
+        row = self.db.execute("SELECT value FROM internal WHERE key=?", (key,)).fetchone()
+        return default if row is None else _decode(row[0])
+
+    def internal_items(self, prefix=""):
+        return {key: _decode(value) for key, value in self.db.execute(
+            "SELECT key,value FROM internal ORDER BY key") if key.startswith(prefix)}
+
+    def set_internal(self, key, value):
+        # Internal bookkeeping may reconcile a completed finalization intent;
+        # it never changes public payload or item/attempt content sequence.
+        if not isinstance(key, str) or not key:
+            raise ValueError("Invalid internal journal key")
+        with self._transaction():
+            if value is None:
+                self.db.execute("DELETE FROM internal WHERE key=?", (key,))
+            else:
+                self.db.execute("INSERT INTO internal VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                                (key, _encode(value)))
+
     def items(self):
         return [_decode(row[0]) for row in self.db.execute("SELECT record FROM items ORDER BY ordinal")]
 
@@ -286,6 +308,8 @@ class RunState:
         for row in self.db.execute("SELECT qid,record FROM items WHERE state!='accepted' AND attempts<3 "
                                    "AND (next_at IS NULL OR next_at<=?) ORDER BY ordinal", (now,)):
             item = _decode(row[1])
+            if item["status"] == "pending" and item["attempt_ids"]:
+                continue  # a reserved/classified source must be recovered locally first
             if item["status"] == "unresolved" and not (item["error"] or {}).get("retryable", False):
                 continue
             active = self.db.execute("SELECT a.record FROM attempts a JOIN attempt_items l USING(attempt_id) "
@@ -357,9 +381,21 @@ class RunState:
         if record["outcome"] not in {"reserved", "succeeded", "mixed", "transient_failure", "review_required",
                                      "interrupted", "saving_failure"}:
             raise ValueError("Invalid attempt outcome")
+        if previous["outcome"] != "reserved":
+            if codec.equal(previous, record):
+                return
+            completion = (record["finished_at"] == previous["finished_at"] or
+                          (previous["finished_at"] is None and valid_utc(record["finished_at"])))
+            diagnostics = record["diagnostics"]
+            append_only = (isinstance(diagnostics, list) and len(diagnostics) >= len(previous["diagnostics"])
+                           and codec.equal(diagnostics[:len(previous["diagnostics"])], previous["diagnostics"]))
+            other = dict(record, finished_at=previous["finished_at"], diagnostics=previous["diagnostics"])
+            if not (completion and append_only and codec.equal(other, previous)):
+                raise ValueError("Committed attempt source/provenance is immutable")
         with self._transaction():
             self.db.execute("UPDATE attempts SET record=? WHERE attempt_id=?", (_encode(record), attempt_id))
             self._advance()
+        self._source_cache = None
 
     def unresolve(self, qid, error, *, returned_qid=None, next_eligible_at=None):
         self._mutable()
@@ -387,7 +423,8 @@ class RunState:
         if not isinstance(relative, str) or not relative or "\\" in relative:
             raise ValueError("Unsafe artifact path")
         value = PurePosixPath(relative)
-        if value.is_absolute() or ".." in value.parts or str(value) != relative or relative == ".":
+        if (value.is_absolute() or ".." in value.parts or str(value) != relative or relative == "."
+                or value.parts[0] == ".state"):
             raise ValueError("Unsafe artifact path")
         cursor = self.root
         for part in value.parts:
@@ -398,14 +435,110 @@ class RunState:
             cursor.parent.mkdir(parents=True, exist_ok=True)
         return cursor
 
-    def publish(self, relative, body, complete=None):
+    def publish(self, relative, body, complete=_UNSET):
         self._mutable()
-        path = self.path(relative, parents=True)
-        write_bytes(path, body)
+        match = re.search(r"(?:^|/)(A[0-9]+)(?:[.-]|$)", relative)
+        owner = match.group(1) if match else None
+        self._publish_payload(relative, body, owner)
         descriptor = describe(relative, body)
-        if complete is not None:
+        if complete is not _UNSET:
+            if complete is not None and type(complete) is not bool:
+                raise ValueError("Invalid body completeness")
             descriptor["complete"] = complete
         return descriptor
+
+    def _publish_payload(self, relative, body, attempt_id):
+        """Durable ownership intent precedes staged bytes; interruption retains both."""
+        destination = self.path(relative, parents=True)
+        if destination.exists():
+            raise FileExistsError(f"Immutable artifact already exists: {relative}")
+        if not isinstance(body, bytes):
+            raise ValueError("Artifact body must be bytes")
+        staging_dir = self.root / ".state/staging"
+        staging_dir.mkdir(exist_ok=True)
+        _sync(staging_dir.parent)
+        identity = uuid.uuid4().hex
+        name = f"{attempt_id or 'run'}-{identity}.pending"
+        relative_stage = ".state/staging/" + name
+        staging = self.root / relative_stage
+        key = "payload:" + identity
+        self.set_internal(key, {"attempt_id": attempt_id, "path": relative,
+                               "staging_path": relative_stage, "file": describe(relative, body)})
+        with staging.open("xb") as stream:
+            if stream.write(body) != len(body):
+                raise OSError("Incomplete staged artifact write")
+            stream.flush()
+            os.fsync(stream.fileno())
+        _sync(staging_dir)
+        os.link(staging, destination)
+        _sync(destination.parent)
+        staging.unlink()
+        _sync(staging_dir)
+        self.set_internal(key, None)
+
+    def _source_entities(self, attempt_id):
+        if self._source_cache is not None and self._source_cache[0] == attempt_id:
+            return self._source_cache[1]
+        attempt = self.get_attempt(attempt_id)
+        http = attempt["http"]
+        if (attempt["outcome"] not in ("succeeded", "mixed") or attempt["api_error"] is not None
+                or attempt["warnings"] is not None or attempt["error"] is not None
+                or not isinstance(http, dict) or http.get("status_code") != 200
+                or attempt["receipt_complete"] is not True or attempt["headers_observed"] is not True
+                or not valid_utc(attempt["dispatch_started_at"])
+                or not valid_utc(attempt["response_received_at"])
+                or type(attempt["response_elapsed_ms"]) is not int
+                or not 0 <= attempt["response_elapsed_ms"] <= 60000
+                or not isinstance(attempt["decoded"], dict) or attempt["decoded"].get("complete") is not True):
+            raise ValueError("Item requires a committed complete usable source")
+        body = self._read_descriptor(attempt["decoded"])
+        entities = entities_from_response(body, attempt["requested_qids"])
+        self._source_cache = (attempt_id, entities)
+        return entities
+
+    def accept(self, qid, attempt_id, entity, membership):
+        self._mutable()
+        if membership not in ("matches", "changed"):
+            raise ValueError("Accepted membership must be assessed from the preserved source")
+        item = self.get_item(qid)
+        if attempt_id not in item["attempt_ids"]:
+            raise ValueError("Item lacks this reserved attempt")
+        entities = self._source_entities(attempt_id)
+        original = require_entity(entities, qid)
+        if not codec.equal(entity, original):
+            raise ValueError("Extracted entity differs from committed source")
+        attempt = self.get_attempt(attempt_id)
+        result = next((row for row in attempt["item_results"] if row["qid"] == qid), None)
+        if (result is None or result["outcome"] != "accepted" or result["returned_qid"] != qid
+                or result["error"] is not None):
+            raise ValueError("Source classification did not accept this requested entity")
+        if item["status"] == "accepted":
+            if item["source_response_id"] != attempt_id or item["membership_at_retrieval"] != membership:
+                raise ValueError("Accepted revision/provenance is immutable")
+            self._read_descriptor(item["item"])
+            return item
+        relative = f"items/{qid}.json"
+        path = self.path(relative)
+        if path.exists():
+            body = path.read_bytes()
+            if not codec.equal(codec.loads(body), original):
+                raise ValueError("Uncommitted published item differs from its committed source")
+        else:
+            body = codec.dumps(original).encode("utf-8")
+            self._publish_payload(relative, body, attempt_id)
+        item.update(returned_qid=qid, status="accepted", lastrevid=int(original["lastrevid"].token),
+                    modified=original["modified"], retrieved_at=attempt["response_received_at"],
+                    item=describe(relative, body), source_response_id=attempt_id, source_entity_key=qid,
+                    membership_at_retrieval=membership, next_eligible_at=None, error=None)
+        with self._transaction():
+            previous = self.get_item(qid)
+            manifest = self.manifest
+            manifest["counts"][previous["status"]] -= 1
+            manifest["counts"]["accepted"] += 1
+            self._put_item(item)
+            self._put_manifest(manifest)
+            self._advance()
+        return self.get_item(qid)
 
     def snapshot(self):
         self._mutable()
@@ -436,6 +569,15 @@ class RunState:
             raise ValueError("Invalid journal metadata contract")
         if manifest["request_settings"] != request_settings(manifest["request_settings"]["headers"]["User-Agent"]):
             raise ValueError("Journal request settings changed")
+        public = self.root / "manifest.json"
+        if public.exists():
+            if public.is_symlink():
+                raise ValueError("Unsafe public manifest")
+            previous = _decode(public.read_bytes())
+            for field in ("format", "format_version", "run_id", "run_kind", "exporter_version", "runtime",
+                          "selection", "created_at", "request_settings"):
+                if not codec.equal(previous[field], manifest[field]):
+                    raise ValueError("Immutable public/journal settings disagree")
         foreign = self.db.execute("PRAGMA foreign_key_check").fetchall()
         if foreign:
             raise ValueError("Broken attempt/item links")
@@ -475,9 +617,26 @@ class RunState:
             raise ValueError("Copied frozen selection is corrupt")
 
     def _audit_accepted(self):
-        # Acceptance/source proof is added in the next separately reviewed increment.
-        if any(item["status"] == "accepted" for item in self.items()):
-            raise ValueError("Accepted-item audit not yet implemented")
+        accepted = [item for item in self.items() if item["status"] == "accepted"]
+        # Group by source so each batch response is read/parsed only once.
+        for item in sorted(accepted, key=lambda value: value["source_response_id"]):
+            qid = item["requested_qid"]
+            attempt_id = item["source_response_id"]
+            entity = require_entity(self._source_entities(attempt_id), qid)
+            attempt = self.get_attempt(attempt_id)
+            result = next((row for row in attempt["item_results"] if row["qid"] == qid), None)
+            if (item["returned_qid"] != qid or item["source_entity_key"] != qid
+                    or item["lastrevid"] != int(entity["lastrevid"].token)
+                    or item["modified"] != entity["modified"]
+                    or item["retrieved_at"] != attempt["response_received_at"]
+                    or item["membership_at_retrieval"] not in ("matches", "changed")
+                    or item["error"] is not None or item["next_eligible_at"] is not None
+                    or not result or result["outcome"] != "accepted" or result["returned_qid"] != qid):
+                raise ValueError("Accepted item provenance differs from its immutable source")
+            body = self._read_descriptor(item["item"])
+            if not codec.equal(codec.loads(body), entity):
+                raise ValueError("Accepted item content changed")
+        self._source_cache = None
 
     def close(self):
         if self.db is not None:
