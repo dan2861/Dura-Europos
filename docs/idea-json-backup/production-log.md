@@ -43,3 +43,4 @@ Final discovery milestone review is clear after the known-failure precedence fix
 | Live monotonic cooldown | Collector had no monotonic guard/injection; wall-clock jump could skip relative server wait | Seven controller tests pass; live monotonic floor supplements persisted UTC deadline |
 | Resume/finalization ordering | Resume ignored prepared report intent and left run collected | Eight controller tests pass; exact prepared finalization is completed before snapshots, acceptance or network |
 | Explicit production commands | Pilot/collector/resume/finalizer handlers absent | Seven production CLI tests pass; parent-linked subset, explicit run kind, read-only audit vs --write and external-only report paths |
+| Public payload ownership before resume | Fresh QID was dispatched despite unowned file in run | Nine controller tests pass; unexplained files/links hold before network, recovered attempt-owned diagnostic publications are registered without replacing bytes |

@@ -45,6 +45,20 @@ class Clock:
 
 
 class ProductionTests(unittest.TestCase):
+    def test_unowned_public_payload_holds_resume_before_fresh_dispatch(self):
+        clock, calls = Clock(), []
+        with TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / "run"
+            collect(self.selection(base, [f"Q{i}" for i in range(1, 52)]), root,
+                    fetcher=self.fetcher(clock, calls), sleep=clock.sleep, now_fn=clock.utc,
+                    monotonic=clock.monotonic, max_batches=1)
+            (root / "unowned.txt").write_text("unowned evidence")
+            no_fetch = Mock(side_effect=AssertionError("unowned payload must stop new dispatch"))
+            with self.assertRaisesRegex(ValueError, "Unaccounted"):
+                resume(root, fetcher=no_fetch, sleep=clock.sleep, now_fn=clock.utc, monotonic=clock.monotonic)
+            no_fetch.assert_not_called()
+
     def test_resume_completes_prepared_finalization_before_any_other_work(self):
         clock, calls = Clock(), []
         with TemporaryDirectory() as directory:

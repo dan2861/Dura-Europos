@@ -4,6 +4,7 @@ from email.utils import parsedate_to_datetime
 import json
 from pathlib import Path
 import time
+import re
 
 from scripts.sample_backup import jsoncodec as codec
 
@@ -164,6 +165,41 @@ def _complete_source(store, attempt):
         store.record_attempt(attempt["attempt_id"], attempt)
 
 
+def _audit_public_ownership(store):
+    expected = {"manifest.json", "inventory.jsonl", "attempts.jsonl"}
+    if store.manifest["verification_path"]:
+        expected.add(store.manifest["verification_path"])
+    for path in (store.root / "selection").rglob("*"):
+        if path.is_file():
+            expected.add(path.relative_to(store.root).as_posix())
+    for item in store.items():
+        if item["item"]:
+            expected.add(item["item"]["path"])
+    for attempt in store.attempts():
+        for role in ("encoded", "decoded"):
+            if attempt[role]:
+                expected.add(attempt[role]["path"])
+        for diagnostic in attempt["diagnostics"]:
+            expected.add(diagnostic["file"]["path"])
+    for path in store.root.rglob("*"):
+        relative = path.relative_to(store.root).as_posix()
+        if relative.split("/", 1)[0] == ".state":
+            continue
+        if path.is_symlink():
+            raise ValueError("Unaccounted linked payload requires review")
+        if path.is_dir():
+            continue
+        if relative not in expected:
+            match = re.fullmatch(r"diagnostics/(A[0-9]+)-.+", relative)
+            if match:
+                attempt = store.get_attempt(match.group(1))
+                _diagnostic(store, attempt, relative, path.read_bytes(),
+                            "Recovered attempt-owned diagnostic publication before its record was committed")
+                store.record_attempt(attempt["attempt_id"], attempt)
+            else:
+                raise ValueError(f"Unaccounted public payload requires review: {relative}")
+
+
 def recover(store):
     _recover_payload_intents(store)
     hold = False
@@ -185,6 +221,7 @@ def recover(store):
             _retain_wait(store, attempt["next_eligible_at"])
     if hold:
         raise ValueError("server_wait_unknown: review required before any new dispatch")
+    _audit_public_ownership(store)
 
 
 def _process(store, *, fetcher, sleep, now_fn, max_batches, monotonic):
