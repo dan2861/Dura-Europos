@@ -45,6 +45,27 @@ class Clock:
 
 
 class ProductionTests(unittest.TestCase):
+    def test_linked_internal_capture_cannot_supply_recovery_headers(self):
+        clock = Clock()
+        with TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / "run"
+            outside = base / "outside"
+            outside.mkdir()
+            receipt = {"headers_observed": True, "status_code": 200, "headers": {},
+                       "headers_received_at": clock.utc()}
+            (outside / "receipt.json").write_text(json.dumps(receipt))
+            with RunState.create(self.selection(base, ["Q1", "Q2"]), root, now_fn=clock.utc) as store:
+                settings = store.manifest["request_settings"]
+                attempt = store.reserve(["Q1"], {"method": "GET", "url": settings["endpoint"],
+                    "headers": settings["headers"], "parameters": dict(settings["action_parameters"], ids="Q1")})
+                store.dispatch(attempt["attempt_id"])
+                (root / ".state" / attempt["attempt_id"]).symlink_to(outside, target_is_directory=True)
+            no_fetch = Mock(side_effect=AssertionError("linked internal receipts cannot authorize dispatch"))
+            with self.assertRaises(ValueError):
+                resume(root, fetcher=no_fetch, sleep=clock.sleep, now_fn=clock.utc, monotonic=clock.monotonic)
+            no_fetch.assert_not_called()
+
     def test_known_header_interruption_can_resume_within_quota(self):
         clock, calls = Clock(), []
         normal = self.fetcher(clock, calls)

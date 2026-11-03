@@ -79,7 +79,7 @@ def _recover_payload_intents(store):
         relative = intent["staging_path"]
         if not relative.startswith(".state/staging/" ) or ".." in Path(relative).parts:
             raise ValueError("Unsafe interrupted staging intent")
-        stage = store.root / relative
+        stage = store.internal_path(relative)
         if stage.is_symlink():
             raise ValueError("Linked interrupted staging evidence")
         if stage.exists():
@@ -93,14 +93,14 @@ def _recover_payload_intents(store):
 
 def _recover_reserved(store, attempt):
     attempt_id = attempt["attempt_id"]
-    folder = store.root / ".state" / attempt_id
+    folder = store.internal_path(f".state/{attempt_id}")
     known = attempt["dispatch_started_at"] is None
     receipt = None
     for name in ("receipt.json", "result.json"):
         path = folder / name
         if path.exists() and not path.is_symlink():
             try:
-                candidate = json.loads(path.read_bytes())
+                candidate = json.loads(store.internal_path(f".state/{attempt_id}/{name}").read_bytes())
                 headers = candidate.get("headers")
                 observed = candidate.get("headers_observed")
                 if (type(observed) is bool and isinstance(headers, dict) and set(headers) <= HEADER_NAMES
@@ -258,7 +258,7 @@ def _process(store, *, fetcher, sleep, now_fn, max_batches, monotonic):
             attempt_id = attempt["attempt_id"]
             store.dispatch(attempt_id)
             attempt = store.get_attempt(attempt_id)
-            capture = fetcher(attempt["request"], store.root / ".state" / attempt_id, timeout_seconds=60)
+            capture = fetcher(attempt["request"], store.internal_path(f".state/{attempt_id}"), timeout_seconds=60)
             attempt.update(headers_received_at=capture.headers_received_at, headers_observed=capture.headers_observed,
                            response_received_at=capture.response_received_at, response_elapsed_ms=capture.response_elapsed_ms,
                            receipt_complete=capture.receipt_complete,
