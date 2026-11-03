@@ -25,3 +25,5 @@ Authorization: assistant runs offline TDD and makes small local commits; Danu ex
 
 Discovery milestone validation: full `python3 -B -m unittest discover -s tests -q` passed 150 tests (45 discovery-stage + prior 105). No live discovery/collection or deposit command was run by the assistant. The next guided gate is discovery into a fresh selection directory; production item collection/resume/archives remain unimplemented.
 | Known-failure precedence review fix | CLI downgraded corrupt initialized format/criterion/query to unfinished | Four CLI and fourteen selection-verifier tests pass; verifier audits initialized state independently and CLI maps its result directly |
+
+Final discovery milestone review is clear after the known-failure precedence fix. Final full suite: **153 tests pass** (48 discovery-stage + prior 105). Separate client/selection review and final integration review records are in review/idea-json-backup-discovery-review-2026-11-03.md. Next action is Danu’s guided discover command from the [runbook](runbook.md); no live discovery was run automatically.

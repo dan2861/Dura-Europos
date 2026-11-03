@@ -1,10 +1,10 @@
 # IDEA JSON backup: implementation plan
 
-Drafted: 2026-10-28. **Approved by Danu on 2026-10-28, with MVP-first delivery.** On 2026-11-02 Danu authorized automatic offline TDD/local commits until the MVP was complete. That slice is now implemented and reviewed; see [runbook](mvp-runbook.md) and [increment log](implementation-log.md). The production roadmap below remains deferred.
+Drafted: 2026-10-28. **Approved by Danu on 2026-10-28, with MVP-first delivery.** On 2026-11-02 Danu authorized automatic offline TDD/local commits until the MVP was complete. That slice is now implemented and reviewed; see [runbook](mvp-runbook.md) and [increment log](implementation-log.md). The first production discovery milestone was implemented offline on 2026-11-03 after the guided MVP pilot; later collection/recovery/deposit milestones remain deferred pending the next guided gates. See [production runbook](runbook.md) and [production log](production-log.md).
 Authority: [Spec](design.md), explicitly approved by Danu on 2026-10-28.
 Companion: [record layouts](record-layouts.md), part of this Plan's review.
 
-**Current delivery order:** the [small MVP](mvp.md) is complete after separate preservation/transport reviews and a final integrated review. The detailed modules/schemas/milestones below are the production roadmap. Full discovery, SQLite recovery, large-scale collection and deposit features require later requested increments; they are not part of the completed prototype.
+**Current delivery order:** the [small MVP](mvp.md), guided three-item pilot and saved-evidence review are complete. Danu authorized automatic offline TDD/small commits and guided operational runs. The first production discovery milestone is implemented and offline-tested; actual discovery is the next guided run. SQLite recovery, production collection and deposit features follow later reviewed increments.
 
 ## 1. Outcome and execution boundary
 
