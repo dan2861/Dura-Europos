@@ -1,6 +1,7 @@
 """Immutable selection evidence and numeric union, separate from item collection."""
 from datetime import datetime, timezone
 from pathlib import Path
+import re
 
 from scripts.sample_backup.jsoncodec import dumps, loads
 
@@ -64,8 +65,20 @@ def new_selection(directory, *, kind="synthetic"):
 
 def parse_results(body):
     value = loads(body)
-    return [binding["item"]["value"].removeprefix("http://www.wikidata.org/entity/")
-            for binding in value["results"]["bindings"]]
+    if (not isinstance(value, dict) or set(value) != {"head", "results"}
+            or not isinstance(value["head"], dict) or value["head"].get("vars") != ["item"]
+            or not isinstance(value["results"], dict) or set(value["results"]) != {"bindings"}
+            or not isinstance(value["results"]["bindings"], list)):
+        raise ValueError("Malformed SPARQL result structure")
+    qids = []
+    for row in value["results"]["bindings"]:
+        if (not isinstance(row, dict) or set(row) != {"item"} or not isinstance(row["item"], dict)
+                or set(row["item"]) != {"type", "value"} or row["item"]["type"] != "uri"
+                or not isinstance(row["item"]["value"], str)
+                or not re.fullmatch(r"http://www.wikidata.org/entity/Q[1-9][0-9]*", row["item"]["value"])):
+            raise ValueError("Expected a canonical item URI binding")
+        qids.append(row["item"]["value"].rsplit("/", 1)[1])
+    return qids
 
 
 def freeze_selection(directory, metadata):
@@ -77,7 +90,14 @@ def freeze_selection(directory, metadata):
         if source["outcome"] != "succeeded":
             raise ValueError("Both discovery graphs must succeed before freezing")
         attempt = source["attempts"][-1]
-        qids.update(parse_results((root / attempt["decoded"]["path"]).read_bytes()))
+        try:
+            qids.update(parse_results((root / attempt["decoded"]["path"]).read_bytes()))
+        except ValueError as exc:
+            source["outcome"] = "failed"
+            attempt.update(outcome="review_required", error={"stage": "selection", "code": "invalid_results",
+                           "message": str(exc), "retryable": False})
+            checkpoint(root, metadata)
+            raise
     if not qids:
         raise ValueError("Empty combined selection requires review")
     body = ("\n".join(sorted(qids, key=lambda qid: int(qid[1:]))) + "\n").encode()
