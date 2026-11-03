@@ -10,6 +10,7 @@ from unittest.mock import patch
 from scripts.export_idea_json import main
 from scripts.idea_json_backup.selection import freeze_fixture_responses
 from scripts.idea_json_backup.selection import new_selection
+from scripts.idea_json_backup.state import RunState
 from test_idea_json_pilot_selection import parent_fixture
 
 
@@ -19,6 +20,24 @@ def result(*qids):
 
 
 class ProductionCommandTests(unittest.TestCase):
+    def test_status_reads_journal_without_mutating_payload_or_fetching(self):
+        with TemporaryDirectory() as directory:
+            base = Path(directory)
+            freeze_fixture_responses(result("Q1"), result(), base / "selection")
+            with RunState.create(base / "selection", base / "run"):
+                pass
+            before = {p.relative_to(base / "run"): p.read_bytes() for p in (base / "run").rglob("*")
+                      if p.is_file() and '.state' not in p.relative_to(base / "run").parts}
+            with patch("scripts.export_idea_json.collect", side_effect=AssertionError("no live call")), patch(
+                    "scripts.export_idea_json.resume", side_effect=AssertionError("no live call")):
+                code, report = self.invoke(["status", "--run", str(base / "run")])
+            self.assertEqual(code, 0)
+            self.assertEqual(report["phase"], "initialized")
+            self.assertEqual(report["counts"]["pending"], 1)
+            after = {p.relative_to(base / "run"): p.read_bytes() for p in (base / "run").rglob("*")
+                     if p.is_file() and '.state' not in p.relative_to(base / "run").parts}
+            self.assertEqual(before, after)
+
     def test_pilot_selection_command_copies_parent_and_declared_subset(self):
         with TemporaryDirectory() as directory:
             base = Path(directory)
