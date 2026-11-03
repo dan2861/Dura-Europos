@@ -74,6 +74,38 @@ class Clock:
 
 
 class ProductionTests(unittest.TestCase):
+    def test_uncommitted_parseable_body_is_diagnostic_and_known_wait_is_recovered(self):
+        clock, calls = Clock(), []
+        first = []
+        normal = self.fetcher(clock, calls)
+
+        def interrupted(request, directory, **options):
+            if not first:
+                first.append(True)
+                calls.append((clock.seconds, request["parameters"]["ids"].split("|")))
+                directory.mkdir()
+                (directory / "receipt.json").write_text(json.dumps({"headers_observed": True, "status_code": 503,
+                    "headers": {"retry-after": ["20"]}, "headers_received_at": clock.utc()}))
+                (directory / "encoded.body").write_bytes(json.dumps({"success": 1, "entities": {"Q1": item("Q1")}}).encode())
+                raise KeyboardInterrupt("invented crash before a complete-source commit")
+            return normal(request, directory, **options)
+
+        with TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / "run"
+            with self.assertRaises(KeyboardInterrupt):
+                collect(self.selection(base, ["Q1"]), root, fetcher=interrupted, sleep=clock.sleep,
+                        now_fn=clock.utc, monotonic=clock.monotonic)
+            resume(root, fetcher=interrupted, sleep=clock.sleep, now_fn=clock.utc, monotonic=clock.monotonic)
+            self.assertEqual([stamp for stamp, qids in calls], [0, 20])
+            with RunState.open(root, now_fn=clock.utc) as store:
+                previous = store.attempts()[0]
+                self.assertIsNone(previous["decoded"])
+                self.assertIsNone(previous["receipt_complete"])
+                self.assertEqual(len(previous["diagnostics"]), 2)
+                self.assertEqual(store.get_item("Q1")["source_response_id"], "A000002")
+            self.assertEqual(verify_collection(root)["status"], "passed")
+
     def test_spawned_capture_journal_audit_and_immutable_finalization(self):
         with TemporaryDirectory() as directory:
             base = Path(directory)
