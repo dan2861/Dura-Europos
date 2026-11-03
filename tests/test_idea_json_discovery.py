@@ -56,6 +56,7 @@ class DiscoveryTests(unittest.TestCase):
             self.assertIn('query.wikidata.org', calls[0][0]["url"])
             self.assertIn('query-scholarly.wikidata.org', calls[1][0]["url"])
             self.assertEqual(metadata["sources"][0]["attempts"][0]["receipt_complete"], True)
+            self.assertEqual(metadata["frozen_at"], clock.utc())
 
     def test_retry_after_and_backoff_apply_before_retry_and_next_graph(self):
         clock = Clock()

@@ -127,4 +127,4 @@ def discover(output_dir, *, kind="production", user_agent=DEFAULT_USER_AGENT,
                     source.update(outcome="failed", finished_at=utcnow())
                     checkpoint(root, metadata)
                 raise
-    return freeze_selection(root, metadata)
+    return freeze_selection(root, metadata, utcnow=utcnow)

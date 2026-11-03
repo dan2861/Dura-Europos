@@ -81,7 +81,7 @@ def parse_results(body):
     return qids
 
 
-def freeze_selection(directory, metadata):
+def freeze_selection(directory, metadata, *, utcnow=now):
     root = Path(directory)
     if metadata["qid_list"] is not None:
         raise ValueError("Selection is already frozen")
@@ -102,7 +102,7 @@ def freeze_selection(directory, metadata):
         raise ValueError("Empty combined selection requires review")
     body = ("\n".join(sorted(qids, key=lambda qid: int(qid[1:]))) + "\n").encode()
     write_bytes(root / "qids.txt", body)
-    metadata.update(qid_list=describe("qids.txt", body), selected_count=len(qids), frozen_at=now())
+    metadata.update(qid_list=describe("qids.txt", body), selected_count=len(qids), frozen_at=utcnow())
     checkpoint(root, metadata)
     return metadata
 
