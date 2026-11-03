@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from scripts.export_idea_json import main
 from scripts.idea_json_backup.selection import freeze_fixture_responses
+from scripts.idea_json_backup.selection import new_selection
 
 
 def result(*qids):
@@ -17,6 +18,14 @@ def result(*qids):
 
 
 class ProductionCommandTests(unittest.TestCase):
+    def test_unfinished_selection_has_unfinished_exit_code(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / "selection"
+            new_selection(root)
+            code, report = self.invoke(["verify-selection", str(root)])
+            self.assertEqual(code, 2)
+            self.assertEqual(report["status"], "not_checked")
+
     def invoke(self, args):
         output = io.StringIO()
         with contextlib.redirect_stdout(output):

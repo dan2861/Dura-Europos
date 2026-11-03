@@ -1,18 +1,47 @@
 """Invented discovery responses and a fake clock; no external requests."""
 import json
+import gzip
+from functools import partial
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from scripts.idea_json_backup.client import FetchResult
+from scripts.idea_json_backup.client import FetchResult, fetch, network_worker
 from scripts.idea_json_backup.discovery import discover
+from scripts.idea_json_backup.selection_verify import verify_selection
 
 
 def body(*qids):
     return json.dumps({"head": {"vars": ["item"]}, "results": {"bindings": [
         {"item": {"type": "uri", "value": "http://www.wikidata.org/entity/" + qid}} for qid in qids]}}).encode()
+
+
+def fixture_worker(request, timeout_seconds, directory):
+    """Real capture worker with invented streaming gzip and no live opener."""
+    class Response:
+        status = 200
+
+        def __init__(self):
+            value = body("Q10", "Q2") if request["url"] == "https://query.wikidata.org/sparql" else body("Q2", "Q1")
+            self.value = gzip.compress(value, mtime=0)
+            self.headers = {"Content-Length": str(len(self.value)), "Content-Encoding": "gzip"}
+
+        def read(self, size):
+            value, self.value = self.value[:11], self.value[11:]
+            return value
+
+        def close(self):
+            pass
+
+    class Transport:
+        def open(self, url, headers, timeout):
+            return Response()
+
+    with patch("scripts.idea_json_backup.client.HTTPTransport", return_value=Transport()), patch(
+            "socket.socket.connect", side_effect=AssertionError("External network forbidden in fixture")):
+        network_worker(request, timeout_seconds, directory)
 
 
 class Clock:
@@ -37,6 +66,13 @@ class Clock:
 
 
 class DiscoveryTests(unittest.TestCase):
+    def test_spawned_streaming_capture_to_independent_selection_audit(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / "selection"
+            discover(root, kind="synthetic", fetcher=partial(fetch, worker=fixture_worker))
+            self.assertEqual((root / "qids.txt").read_bytes(), b"Q1\nQ2\nQ10\n")
+            self.assertEqual(verify_selection(root), {"status": "passed", "findings": []})
+
     def test_selection_parent_sync_failure_prevents_any_dispatch(self):
         from scripts.idea_json_backup import files
         original = files._sync
@@ -120,6 +156,7 @@ class DiscoveryTests(unittest.TestCase):
             self.assertIn('query-scholarly.wikidata.org', calls[1][0]["url"])
             self.assertEqual(metadata["sources"][0]["attempts"][0]["receipt_complete"], True)
             self.assertEqual(metadata["frozen_at"], clock.utc())
+            self.assertEqual(verify_selection(root), {"status": "passed", "findings": []})
 
     def test_retry_after_and_backoff_apply_before_retry_and_next_graph(self):
         clock = Clock()

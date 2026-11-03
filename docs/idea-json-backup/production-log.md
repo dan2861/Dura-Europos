@@ -20,3 +20,5 @@ Authorization: assistant runs offline TDD and makes small local commits; Danu ex
 | Observed selection receipt audit | Synthetic-only verifier rejected valid production/injected receipts and retry history | Eleven independent verifier tests pass; strict timing, header lists, decode linkage, scope and cross-graph cooldown checked |
 | Selection hardlink rule | A checksummed public source hardlinked outside the bundle still passed | Twelve independent selection tests pass; public payload requires one regular-file link |
 | Production discovery commands | New production CLI absent | Two CLI tests pass with mocked discovery and real independent read-only selection audits; no live query executed |
+| Unfinished CLI outcome | Pending selection returned known-failure exit1 | Three CLI tests pass; unfinished selection is not_checked/exit2 without mutation or fetching |
+| Integrated capture/union regression | Already GREEN: composed previously tested pieces without manufacturing a failure | Seven discovery tests pass, including real spawned worker with streamed invented gzip and network connections blocked |

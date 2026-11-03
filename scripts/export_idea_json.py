@@ -26,6 +26,20 @@ def main(argv=None):
         if args.command == "discover":
             metadata = discover(directory, user_agent=args.user_agent)
         report = verify_selection(directory)
+        if report["status"] == "failed" and not directory.is_symlink():
+            path = directory / "selection.json"
+            try:
+                if not path.is_symlink():
+                    saved = json.loads(path.read_bytes())
+                    if (isinstance(saved, dict) and saved.get("frozen_at") is None
+                            and isinstance(saved.get("sources"), list) and saved["sources"]
+                            and all(isinstance(source, dict) and source.get("outcome") in ("pending", "succeeded")
+                                    for source in saved["sources"])
+                            and any(source.get("outcome") == "pending" for source in saved["sources"])):
+                        print(json.dumps(dict(report, status="not_checked")))
+                        return 2
+            except (OSError, ValueError):
+                pass
         if args.command == "discover" and report["status"] == "passed":
             report = dict(report, selected_count=metadata["selected_count"], output=str(directory))
         print(json.dumps(report))
