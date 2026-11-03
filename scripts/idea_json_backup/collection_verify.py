@@ -96,6 +96,7 @@ def _membership(entity):
         snak = row["mainsnak"]
         _require(snak.get("snaktype") in ("value", "novalue", "somevalue"), "Unknown IDEA snak", "source_content")
         if snak["snaktype"] != "value":
+            _require("datavalue" not in snak, "Non-value IDEA snak carries a value", "source_content")
             continue
         data = snak.get("datavalue")
         _require(isinstance(data, dict) and data.get("type") == "wikibase-entityid"
@@ -296,10 +297,13 @@ class Audit:
         used, eligible = {}, {}
         global_gate = None
         unfinished_attempt = False
+        held = set()
         for attempt in attempts:
             dispatch = _time(attempt["dispatch_started_at"], nullable=True)
             if dispatch is not None:
                 _require(not unfinished_attempt, "Dispatch occurred before local source processing finished", "provenance")
+                _require(not held.intersection(attempt["requested_qids"]),
+                         "Attempt repeats an accepted or nonretryable held item", "provenance")
                 _require(global_gate is None or dispatch >= global_gate,
                          "Dispatch evades global cooldown", "provenance")
                 for qid in attempt["requested_qids"]:
@@ -340,8 +344,12 @@ class Audit:
             status = attempt["http"]["status_code"] if attempt["http"] is not None else None
             status = int(status.token) if isinstance(status, Number) else None
             for result in attempt["item_results"]:
+                if result["outcome"] == "accepted" or (result["error"] is not None
+                                                       and result["error"]["retryable"] is False):
+                    held.add(result["qid"])
                 if result["error"] is None or result["error"]["retryable"] is not True:
                     continue
+                _require(attempt["warnings"] is None, "Warning-bearing response cannot be retried automatically", "provenance")
                 error = result["error"]
                 known_receipt = type(attempt["headers_observed"]) is bool
                 transient = (error["stage"] in ("transport", "decoding", "api") and known_receipt
@@ -363,6 +371,9 @@ class Audit:
 
     def verify(self):
         _require(self.root.is_dir() and not self.root.is_symlink(), "Invalid run directory", "files")
+        internal = self.root / ".state"
+        if internal.exists() or internal.is_symlink():
+            _require(internal.is_dir() and not internal.is_symlink(), "Internal state must be a real directory", "files")
         manifest = loads(self.path("manifest.json").read_bytes())
         _keys(manifest, MANIFEST_KEYS, "manifest")
         self.report["run_id"] = manifest["run_id"]

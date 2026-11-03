@@ -122,6 +122,75 @@ def with_retry(root, *, dispatch=8, status=503, retry_after=None, api_error=None
 
 
 class CollectionVerifierTests(unittest.TestCase):
+    def test_nonretryable_item_hold_cannot_be_silently_requested_again(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / "run"
+            manifest, inventory, attempts = with_retry(root)
+            prior = attempts[0]
+            prior["outcome"] = "review_required"
+            prior["error"]["retryable"] = False
+            prior["item_results"][0].update(outcome="review_required", error=copy.deepcopy(prior["error"]))
+            rewrite(root, manifest, inventory, attempts)
+            self.assertEqual(verify_collection(root)["status"], "failed")
+
+    def test_internal_state_must_be_a_directory_not_a_symlink(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / "run"
+            fixture(root)
+            outside = Path(directory) / "outside-state"
+            outside.mkdir()
+            (root / ".state").symlink_to(outside, target_is_directory=True)
+            self.assertEqual(verify_collection(root)["status"], "failed")
+
+    def test_nonvalue_membership_with_a_datavalue_is_not_accepted(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / "run"
+            manifest, inventory, attempts = fixture(root)
+            entity = loads(ENTITY)
+            entity["claims"]["P5008"][0]["mainsnak"]["snaktype"] = "novalue"
+            encoded = dumps({"success": 1, "entities": {"Q1": entity}}).encode()
+            descriptor = store(root, attempts[0]["decoded"]["path"], encoded, complete=True)
+            attempts[0].update(encoded=descriptor, decoded=dict(descriptor))
+            attempts[0]["http"]["headers"]["content-length"] = [str(len(encoded))]
+            inventory[0].update(membership_at_retrieval="changed", item=store(root, "items/Q1.json", dumps(entity).encode()))
+            rewrite(root, manifest, inventory, attempts)
+            self.assertEqual(verify_collection(root)["status"], "failed")
+
+    def test_warning_bearing_maxlag_is_a_hold_not_retry_history(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / "run"
+            manifest, inventory, attempts = with_retry(root, status=200, api_error={"code": "maxlag", "message": "busy"})
+            prior = attempts[0]
+            name = prior["decoded"]["path"]
+            envelope = loads((root / name).read_bytes())
+            envelope["warnings"] = {"wbgetentities": {"*": "Invented warning requiring review"}}
+            encoded = dumps(envelope).encode()
+            descriptor = store(root, name, encoded, complete=True)
+            prior.update(encoded=descriptor, decoded=dict(descriptor), warnings=envelope["warnings"])
+            prior["http"]["headers"]["content-length"] = [str(len(encoded))]
+            rewrite(root, manifest, inventory, attempts)
+            self.assertEqual(verify_collection(root)["status"], "failed")
+
+    def test_known_header_transport_interruption_can_resume_without_recovery_timestamp(self):
+        for known, expected in ((True, "passed"), (False, "passed"), (None, "failed")):
+            with self.subTest(known=known), TemporaryDirectory() as directory:
+                root = Path(directory) / "run"
+                manifest, inventory, attempts = with_retry(root, status=200)
+                prior = attempts[0]
+                name = prior["decoded"]["path"]
+                prior.update(outcome="interrupted", recovered_at=None, receipt_complete=False if known else None,
+                             headers_observed=known, response_received_at=None, response_elapsed_ms=None,
+                             decoded=None, error={"stage": "transport", "code": "interrupted_capture",
+                             "message": "Interrupted during capture", "retryable": True})
+                prior["item_results"][0]["error"] = copy.deepcopy(prior["error"])
+                if known is True:
+                    prior["encoded"]["complete"] = False
+                else:
+                    prior.update(http=None, headers_received_at=None, encoded=None)
+                    (root / name).unlink()
+                rewrite(root, manifest, inventory, attempts)
+                self.assertEqual(verify_collection(root)["status"], expected)
+
     def test_recovered_reservation_uses_recovery_time_without_inventing_finish(self):
         for known, dispatched, expected in ((True, True, "passed"), (False, True, "passed"),
                                             (None, False, "passed"), (None, True, "failed")):
