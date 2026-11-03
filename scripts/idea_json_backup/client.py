@@ -253,6 +253,7 @@ def fetch(request, capture_directory, *, timeout_seconds=60, worker=None):
     forced_error = None
     interrupted = False
     start_failed = False
+    exit_failed = False
     try:
         process.start()
         process.join(max(0, deadline - time.monotonic()))
@@ -260,6 +261,7 @@ def fetch(request, capture_directory, *, timeout_seconds=60, worker=None):
             forced_error = "total response deadline exceeded"
         elif getattr(process, "exitcode", None) not in (None, 0):
             forced_error = "response worker exited unsuccessfully"
+            exit_failed = True
     except KeyboardInterrupt:
         interrupted = True
         forced_error = "interrupted during response capture"
@@ -315,7 +317,9 @@ def fetch(request, capture_directory, *, timeout_seconds=60, worker=None):
         metadata.update(error=forced_error, receipt_complete=False if metadata["headers_observed"] else None,
                         response_received_at=None, response_elapsed_ms=None)
         decoded = None
-        if start_failed or "deadline" in forced_error or interrupted:
+        if exit_failed:
+            metadata["stage"] = "saving"
+        elif start_failed or "deadline" in forced_error or interrupted:
             metadata["stage"] = "transport"
     metadata["interrupted"] = interrupted
     return FetchResult(encoded=encoded, decoded=decoded, **metadata)

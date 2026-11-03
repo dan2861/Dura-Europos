@@ -223,6 +223,36 @@ def known_preheader_failure_worker(request, timeout_seconds, folder):
 
 
 class ClientSupervisorTests(unittest.TestCase):
+    def test_unsuccessful_exit_after_published_result_is_saving_uncertainty(self):
+        class FailedAfterPublish:
+            def __init__(self, *, target, args):
+                self.args = args
+                self.pid = None
+                self.exitcode = None
+
+            def start(self):
+                self.pid = 42
+                complete_worker(*self.args)
+                self.exitcode = 1
+
+            def join(self, timeout=None):
+                pass
+
+            def is_alive(self):
+                return False
+
+        with TemporaryDirectory() as directory, patch(
+                "scripts.idea_json_backup.client.multiprocessing.get_context") as context:
+            context.return_value.Process.side_effect = FailedAfterPublish
+            result = fetch(request(), Path(directory) / "capture")
+            self.assertEqual(result.stage, "saving")
+            self.assertIn("unsuccessfully", result.error)
+            self.assertFalse(result.receipt_complete)
+            self.assertIsNone(result.decoded)
+            self.assertEqual(result.encoded, b"{}")
+            self.assertTrue(result.headers_observed)
+            self.assertEqual(result.headers["content-type"], ["application/sparql-results+json"])
+
     def test_real_worker_records_headers_before_first_body_read(self):
         with TemporaryDirectory() as directory:
             folder = Path(directory)
