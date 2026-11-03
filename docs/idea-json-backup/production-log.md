@@ -1,0 +1,9 @@
+# Production roadmap: implementation checkpoints
+
+Started 2026-11-03 after Danu's three-item MVP pilot and separate persisted verification both reported passed. Separate saved-evidence review found no hold. This is technical pilot evidence, not full-population or service-feasibility proof.
+
+Authorization: assistant runs offline TDD and makes small local commits; Danu executes operational discovery/collection/Dataverse commands in guided runs. No automatic live calls, uploads, publication, Wikidata edits or pushes.
+
+| Increment | RED observed | GREEN evidence |
+| --- | --- | --- |
+| Numeric discovery union | Selection module absent | Invented main Q10/Q2 + scholarly Q2/Q1 freezes Q1/Q2/Q10 and preserves exact source bytes |
