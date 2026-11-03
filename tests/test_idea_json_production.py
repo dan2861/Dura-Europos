@@ -39,6 +39,27 @@ class Clock:
 
 
 class ProductionTests(unittest.TestCase):
+    def test_bounded_pause_is_immediate_and_quota_survives_restarts(self):
+        clock, calls = Clock(), []
+
+        def failing(request, directory, **options):
+            calls.append(clock.seconds)
+            return clock.result(b'{"error":{"code":"maxlag","info":"busy"}}')
+
+        with TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / "run"
+            collect(self.selection(base, ["Q1"]), root, fetcher=failing, sleep=clock.sleep,
+                    now_fn=clock.utc, max_batches=1)
+            self.assertEqual(clock.seconds, 0)
+            resume(root, fetcher=failing, sleep=clock.sleep, now_fn=clock.utc, max_batches=1)
+            resume(root, fetcher=failing, sleep=clock.sleep, now_fn=clock.utc, max_batches=1)
+            resume(root, fetcher=failing, sleep=clock.sleep, now_fn=clock.utc)
+            self.assertEqual(calls, [0, 5, 15])
+            with RunState.open(root, now_fn=clock.utc) as store:
+                self.assertEqual(len(store.get_item("Q1")["attempt_ids"]), 3)
+                self.assertEqual(store.manifest["counts"]["accepted"], 0)
+
     def test_resume_recovers_strongest_mixed_server_wait_before_fresh_qids(self):
         clock, calls = Clock(), []
         response = self.fetcher(clock, calls)

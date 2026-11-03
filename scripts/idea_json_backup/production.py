@@ -174,6 +174,8 @@ def recover(store):
             hold = True
         elif attempt["outcome"] in ("succeeded", "mixed"):
             _complete_source(store, attempt)
+        if attempt["finished_at"] or attempt["recovered_at"]:
+            _retain_wait(store, _after(attempt["finished_at"] or attempt["recovered_at"], 1))
         if attempt["http"]:
             receipt = attempt["headers_received_at"] or attempt["recovered_at"] or store.now()
             deadline = _receipt_wait(attempt["http"]["headers"], receipt, store.now())
@@ -192,6 +194,10 @@ def _process(store, *, fetcher, sleep, now_fn, max_batches):
     try:
         recover(store)
         while True:
+            if store.manifest["counts"]["accepted"] == store.manifest["counts"]["selected"]:
+                return store.collected() if store.manifest["phase"] != "collected" else store.snapshot()
+            if max_batches is not None and completed >= max_batches:
+                return store.pause()
             global_wait = store.manifest["next_dispatch_at"]
             if global_wait and global_wait > now_fn():
                 sleep(max(0, (_date(global_wait) - _date(now_fn())).total_seconds()))
@@ -206,8 +212,6 @@ def _process(store, *, fetcher, sleep, now_fn, max_batches):
                 if store.manifest["phase"] == "collected":
                     return store.snapshot()
                 return store.collected()
-            if max_batches is not None and completed >= max_batches:
-                return store.pause()
             settings = store.manifest["request_settings"]
             attempt = store.reserve(qids, _request(qids, settings))
             attempt_id = attempt["attempt_id"]
@@ -273,5 +277,7 @@ def collect(selection, run_dir, *, fetcher=None, sleep=time.sleep, now_fn=utc_no
 
 
 def resume(run_dir, *, fetcher=None, sleep=time.sleep, now_fn=utc_now, max_batches=None):
+    if max_batches is not None and (type(max_batches) is not int or max_batches < 1):
+        raise ValueError("max_batches must be a positive integer")
     with RunState.open(run_dir, now_fn=now_fn) as store:
         return _process(store, fetcher=fetcher or fetch, sleep=sleep, now_fn=now_fn, max_batches=max_batches)
