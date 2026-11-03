@@ -100,6 +100,50 @@ def production_fixture(root, *, compressed=False, kind="production"):
 
 
 class SelectionVerifierTests(unittest.TestCase):
+    def pending_fixture(self, root):
+        metadata = fixture(root)
+        for path in (root / "sources").iterdir():
+            path.unlink()
+        (root / "qids.txt").unlink()
+        metadata.update(qid_list=None, selected_count=None, frozen_at=None)
+        for source in metadata["sources"]:
+            source.update(outcome="pending", started_at=None, finished_at=None, attempts=[])
+        write_metadata(root, metadata)
+        return metadata
+
+    def test_valid_initialized_selection_is_not_checked(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / "selection"
+            self.pending_fixture(root)
+            report = verify_selection(root)
+            self.assertEqual(report["status"], "not_checked")
+            self.assertTrue(report["findings"])
+
+    def test_initialized_selection_corruption_is_failed_not_unfinished(self):
+        changes = [lambda m: m.update(format="unrelated"),
+                   lambda m: m["criterion"].update(property_id="P1"),
+                   lambda m: m.update(unapproved="x"),
+                   lambda m: m["query"].update(sha256="0" * 64),
+                   lambda m: m["query"].update(path="../outside.rq"),
+                   lambda m: m["sources"][0].update(outcome="failed")]
+        for change in changes:
+            with self.subTest(change=change), TemporaryDirectory() as directory:
+                root = Path(directory) / "selection"
+                metadata = self.pending_fixture(root)
+                change(metadata)
+                write_metadata(root, metadata)
+                self.assertEqual(verify_selection(root)["status"], "failed")
+        for corruption in ("query", "extra"):
+            with self.subTest(corruption=corruption), TemporaryDirectory() as directory:
+                root = Path(directory) / "selection"
+                metadata = self.pending_fixture(root)
+                if corruption == "query":
+                    metadata["query"] = store(root, "query.rq", (QUERY + "LIMIT 1\n").encode())
+                    write_metadata(root, metadata)
+                else:
+                    (root / "unvalidated.json").write_text("{}")
+                self.assertEqual(verify_selection(root)["status"], "failed")
+
     def test_hardlinked_public_evidence_is_rejected(self):
         with TemporaryDirectory() as directory:
             root = Path(directory) / "selection"

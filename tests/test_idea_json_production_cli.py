@@ -18,6 +18,24 @@ def result(*qids):
 
 
 class ProductionCommandTests(unittest.TestCase):
+    def test_corrupt_pending_selection_is_failure_not_unfinished(self):
+        for corruption in ("format", "criterion", "query"):
+            with self.subTest(corruption=corruption), TemporaryDirectory() as directory:
+                root = Path(directory) / "selection"
+                new_selection(root)
+                path = root / "selection.json"
+                metadata = json.loads(path.read_bytes())
+                if corruption == "format":
+                    metadata["format"] = "wrong-format"
+                elif corruption == "criterion":
+                    metadata["criterion"]["value_id"] = "Q1"
+                else:
+                    (root / "query.rq").write_text("SELECT * WHERE {}")
+                path.write_text(json.dumps(metadata))
+                code, report = self.invoke(["verify-selection", str(root)])
+                self.assertEqual(code, 1)
+                self.assertEqual(report["status"], "failed")
+
     def test_unfinished_selection_has_unfinished_exit_code(self):
         with TemporaryDirectory() as directory:
             root = Path(directory) / "selection"

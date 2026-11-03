@@ -203,6 +203,23 @@ def _observed_attempt(attempt, read_file, owner, *, succeeded, ordinal):
     return decoded, started, finished, next_at
 
 
+def _inventory(root, accounted):
+    actual_paths = set()
+    for path in root.iterdir():
+        _require(not path.is_symlink(), "symlink in selection directory")
+        if path.name == ".state":
+            _require(path.is_dir(), "internal state must be a directory")
+            continue
+        candidates = path.rglob("*") if path.is_dir() else (path,)
+        for candidate in candidates:
+            _require(not candidate.is_symlink(), "symlink in selection payload")
+            if candidate.is_dir():
+                continue
+            _require(stat.S_ISREG(candidate.stat().st_mode), "non-regular selection payload")
+            actual_paths.add(candidate.relative_to(root).as_posix())
+    _require(actual_paths == set(accounted), "unexpected or unaccounted selection artifacts")
+
+
 def _verify(root):
     _require(root.is_dir() and not root.is_symlink(), "invalid selection directory")
     metadata = loads(_path(root, "selection.json").read_text(encoding="utf-8"))
@@ -214,7 +231,6 @@ def _verify(root):
     _require(metadata["criterion"] == {"property_id": "P5008", "value_id": "Q114241199",
                                       "ranks": ["normal", "preferred"]}, "wrong selection criterion")
     _require(metadata["discovery_settings"] == loads(dumps(SETTINGS)), "wrong discovery settings")
-    frozen_at = _utc(metadata["frozen_at"])
     accounted = {"selection.json": "metadata"}
 
     def read_file(descriptor, *, body=False, owner, expected=None):
@@ -241,6 +257,17 @@ def _verify(root):
              "query differs from approved explicit-rank query")
     sources = metadata["sources"]
     _require(isinstance(sources, list) and len(sources) == 2, "both graph sources are required")
+    if (metadata["frozen_at"] is None and metadata["qid_list"] is None
+            and metadata["selected_count"] is None):
+        for source, (graph, endpoint) in zip(sources, ENDPOINTS.items()):
+            _keys(source, SOURCE_KEYS, "graph source")
+            _require(source["graph"] == graph and source["endpoint"] == endpoint
+                     and source["outcome"] == "pending" and source["attempts"] == []
+                     and source["started_at"] is None and source["finished_at"] is None,
+                     "initialized selection has inconsistent or unvalidated graph evidence")
+        _inventory(root, accounted)
+        return False
+    frozen_at = _utc(metadata["frozen_at"])
     union = set()
     attempts_seen = set()
     previous_dispatch_gate = None
@@ -292,26 +319,16 @@ def _verify(root):
     _require(actual == expected, "frozen QID list differs from numeric source union")
     _require(_integer(metadata["selected_count"], positive=True)
              and int(metadata["selected_count"].token) == len(union), "wrong selected count")
-    actual_paths = set()
-    for path in root.iterdir():
-        _require(not path.is_symlink(), "symlink in selection directory")
-        if path.name == ".state":
-            _require(path.is_dir(), "internal state must be a directory")
-            continue
-        candidates = path.rglob("*") if path.is_dir() else (path,)
-        for candidate in candidates:
-            _require(not candidate.is_symlink(), "symlink in selection payload")
-            if candidate.is_dir():
-                continue
-            _require(stat.S_ISREG(candidate.stat().st_mode), "non-regular selection payload")
-            actual_paths.add(candidate.relative_to(root).as_posix())
-    _require(actual_paths == set(accounted), "unexpected or unaccounted selection artifacts")
+    _inventory(root, accounted)
+    return True
 
 
 def verify_selection(directory):
     """Verify existing evidence without downloading, repairing or rewriting it."""
     try:
-        _verify(Path(directory))
+        complete = _verify(Path(directory))
     except (OSError, ValueError, TypeError, KeyError, RecursionError, ArithmeticError) as exc:
         return {"status": "failed", "findings": [f"{type(exc).__name__}: {exc}"]}
+    if not complete:
+        return {"status": "not_checked", "findings": ["Selection is initialized; both graph queries remain pending"]}
     return {"status": "passed", "findings": []}

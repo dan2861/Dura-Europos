@@ -22,3 +22,6 @@ Authorization: assistant runs offline TDD and makes small local commits; Danu ex
 | Production discovery commands | New production CLI absent | Two CLI tests pass with mocked discovery and real independent read-only selection audits; no live query executed |
 | Unfinished CLI outcome | Pending selection returned known-failure exit1 | Three CLI tests pass; unfinished selection is not_checked/exit2 without mutation or fetching |
 | Integrated capture/union regression | Already GREEN: composed previously tested pieces without manufacturing a failure | Seven discovery tests pass, including real spawned worker with streamed invented gzip and network connections blocked |
+
+Discovery milestone validation: full `python3 -B -m unittest discover -s tests -q` passed 150 tests (45 discovery-stage + prior 105). No live discovery/collection or deposit command was run by the assistant. The next guided gate is discovery into a fresh selection directory; production item collection/resume/archives remain unimplemented.
+| Known-failure precedence review fix | CLI downgraded corrupt initialized format/criterion/query to unfinished | Four CLI and fourteen selection-verifier tests pass; verifier audits initialized state independently and CLI maps its result directly |
