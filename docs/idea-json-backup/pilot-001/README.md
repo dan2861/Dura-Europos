@@ -1,6 +1,6 @@
 # MVP pilot 001: prepared for a guided run
 
-Prepared 2026-11-03 (America/Chicago). Status: **not run**. Danu authorized automatic offline TDD/local commits, with operational commands performed by Danu in guided runs. This packet prepares one live batch using the already tested MVP; it introduces no new collection behavior and no fabricated RED test.
+Prepared 2026-11-03 (America/Chicago). Status: **Pilot technical review complete: Danu reported both verification commands passed, and independent inspection of the saved evidence found no hold.** Danu authorized automatic offline TDD/local commits, with operational commands performed by Danu in guided runs. This packet prepares one live batch using the already tested MVP; it introduces no new collection behavior and no fabricated RED test.
 
 ## Frozen pilot scope and evidence
 
@@ -25,7 +25,7 @@ Official documentation was read on 2026-11-03; no item request was made:
 - [User-Agent policy](https://foundation.wikimedia.org/wiki/Policy:Wikimedia_Foundation_User-Agent_Policy) requires descriptive identification with a real contact route. The configured project URL matches this repository's Git remote: `IDEA-JSON-Backup/0.1.0 (https://github.com/dan2861/Dura-Europos)`.
 - [Maxlag guidance](https://www.mediawiki.org/wiki/Manual:Maxlag_parameter) recommends `maxlag=5`; HTTP 200 can still contain an API error. The MVP rejects such a response and does not retry.
 
-## Guided command: Danu executes
+## Guided collection command: Danu reports completed
 
 From `/Users/danu/Documents/ChatGPT/Dura-Europos`:
 
@@ -58,3 +58,7 @@ Record actual outcomes in `review/idea-json-backup-pilot-001.md` after Danu's ru
 5. Hold for review on warnings, HTTP/API failures, missing/redirected items, framing/decode trouble, identity disagreement or verification findings. Keep every saved byte; no retry or expansion is automatic.
 
 After the pilot review, resume the approved production roadmap with the first offline discovery-union TDD increment. Actual discovery, production collection and Dataverse upload/download remain guided operational steps. Yale destination, access and archive-retention details are later clarifications. Publication and Wikidata edits are outside this packet.
+
+## Completed pilot observation (2026-11-03)
+
+The saved request/receipt records HTTP 200 and a complete gzip response: 11,182 encoded bytes decode to 75,913 source bytes. All three extracted objects match their source entities and retain normal-rank IDEA tags; revisions match the baseline above. Selected qualifiers/references were inspected separately. Danu reported both verification invocations returned passed with no findings. Full details are in review/idea-json-backup-pilot-001.md. This clears the next offline discovery-union increment, while actual discovery remains a guided run.
