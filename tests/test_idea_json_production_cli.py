@@ -10,6 +10,7 @@ from unittest.mock import patch
 from scripts.export_idea_json import main
 from scripts.idea_json_backup.selection import freeze_fixture_responses
 from scripts.idea_json_backup.selection import new_selection
+from test_idea_json_pilot_selection import parent_fixture
 
 
 def result(*qids):
@@ -18,6 +19,42 @@ def result(*qids):
 
 
 class ProductionCommandTests(unittest.TestCase):
+    def test_pilot_selection_command_copies_parent_and_declared_subset(self):
+        with TemporaryDirectory() as directory:
+            base = Path(directory)
+            parent_fixture(base / "parent")
+            (base / "qids.txt").write_text("Q10\nQ1\n")
+            code, report = self.invoke(["pilot-selection", "--parent", str(base / "parent"),
+                                       "--qids", str(base / "qids.txt"), "--output", str(base / "pilot")])
+            self.assertEqual(code, 0)
+            self.assertEqual(report["selected_count"], 2)
+            self.assertEqual((base / "pilot/qids.txt").read_bytes(), b"Q1\nQ10\n")
+
+    def test_collection_resume_and_write_verify_are_explicit_handlers(self):
+        report = {"status": "passed", "findings": []}
+        with patch("scripts.export_idea_json.collect") as collect, patch(
+                "scripts.export_idea_json.resume") as resume, patch(
+                "scripts.export_idea_json.verify_collection", return_value=report) as audit, patch(
+                "scripts.export_idea_json.finalize", return_value=report) as finalize:
+            self.assertEqual(self.invoke(["collect", "--selection", "selection", "--run", "run", "--kind", "pilot"])[0], 0)
+            self.assertEqual(collect.call_args.kwargs["expected_kind"], "pilot")
+            self.assertEqual(self.invoke(["resume", "--run", "run"])[0], 0)
+            resume.assert_called_once()
+            self.assertEqual(self.invoke(["verify", "--run", "run"])[0], 0)
+            finalize.assert_not_called()
+            self.assertEqual(self.invoke(["verify", "--run", "run", "--write"])[0], 0)
+            finalize.assert_called_once()
+
+    def test_external_report_cannot_mutate_run_payload(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / "run"
+            root.mkdir()
+            with patch("scripts.export_idea_json.finalize") as finalizer:
+                code, report = self.invoke(["verify", "--run", str(root), "--write", "--report", str(root / "extra.json")])
+            self.assertEqual(code, 1)
+            finalizer.assert_not_called()
+            self.assertEqual(list(root.iterdir()), [])
+
     def test_corrupt_pending_selection_is_failure_not_unfinished(self):
         for corruption in ("format", "criterion", "query"):
             with self.subTest(corruption=corruption), TemporaryDirectory() as directory:

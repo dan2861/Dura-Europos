@@ -278,9 +278,13 @@ def _process(store, *, fetcher, sleep, now_fn, max_batches, monotonic):
 
 
 def collect(selection, run_dir, *, fetcher=None, sleep=time.sleep, now_fn=utc_now,
-            user_agent=DEFAULT_USER_AGENT, max_batches=None, monotonic=time.monotonic):
+            user_agent=DEFAULT_USER_AGENT, max_batches=None, monotonic=time.monotonic, expected_kind=None):
     if max_batches is not None and (type(max_batches) is not int or max_batches < 1):
         raise ValueError("max_batches must be a positive integer")
+    if expected_kind is not None:
+        metadata = codec.loads((Path(selection) / "selection.json").read_bytes())
+        if expected_kind not in ("production", "pilot") or metadata.get("kind") != expected_kind:
+            raise ValueError("Requested run kind does not match the frozen selection")
     with RunState.create(selection, run_dir, user_agent=user_agent, now_fn=now_fn) as store:
         return _process(store, fetcher=fetcher or fetch, sleep=sleep, now_fn=now_fn, max_batches=max_batches, monotonic=monotonic)
 

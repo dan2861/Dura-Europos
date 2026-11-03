@@ -42,3 +42,4 @@ Final discovery milestone review is clear after the known-failure precedence fix
 | Retry completion boundary | Advancing UTC exposed item/attempt retry eligibility before finished+5 seconds | Six controller tests pass; transient outcome is committed with one finish-based eligibility boundary while active reservation prevents early retries |
 | Live monotonic cooldown | Collector had no monotonic guard/injection; wall-clock jump could skip relative server wait | Seven controller tests pass; live monotonic floor supplements persisted UTC deadline |
 | Resume/finalization ordering | Resume ignored prepared report intent and left run collected | Eight controller tests pass; exact prepared finalization is completed before snapshots, acceptance or network |
+| Explicit production commands | Pilot/collector/resume/finalizer handlers absent | Seven production CLI tests pass; parent-linked subset, explicit run kind, read-only audit vs --write and external-only report paths |
