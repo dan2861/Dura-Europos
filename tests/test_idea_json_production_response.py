@@ -16,6 +16,14 @@ def item(qid, claims=None):
 
 
 class ResponseTests(unittest.TestCase):
+    def test_maxlag_warning_is_held_and_missing_message_is_not_invented(self):
+        for body in (b'{"error":{"code":"maxlag","info":"lagged"},"warnings":{"notice":"review"}}',
+                     b'{"error":{"code":"maxlag"}}'):
+            with self.subTest(body=body):
+                result = classify_response(body, ["Q1"])
+                self.assertEqual(result["outcome"], "review_required")
+                self.assertFalse(result["error"]["retryable"])
+
     def test_rank_rule_and_changed_membership_keep_every_requested_item(self):
         entities = {"Q1": item("Q1", {"P5008": [tag(), tag("Q2", "preferred")]}),
                     "Q2": item("Q2", {"P5008": [tag(rank="deprecated")]}),

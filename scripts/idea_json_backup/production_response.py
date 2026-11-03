@@ -57,13 +57,15 @@ def classify_response(body, qids):
             result["warnings"] = envelope.get("warnings")
             api = envelope.get("error")
             if isinstance(api, dict):
-                code, message = api.get("code"), api.get("info", api.get("message", "API error"))
+                code, message = api.get("code"), api.get("info", api.get("message"))
                 if not isinstance(code, str) or not isinstance(message, str):
                     raise ValueError("Malformed API error object")
                 result["api_error"] = {"code": code, "message": message}
                 result["error"] = error("api", code, message, code == "maxlag")
             elif "error" in envelope:
                 raise ValueError("Malformed API error indication")
+            if "warnings" in envelope:
+                result["error"] = error("api", "api_warning", "API warning requires review")
         if result["error"] is None:
             result["entities"] = entities_from_response(body, qids)
     except (ValueError, TypeError, RecursionError) as exc:
