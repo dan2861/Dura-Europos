@@ -220,14 +220,49 @@ def _inventory(root, accounted):
     _require(actual_paths == set(accounted), "unexpected or unaccounted selection artifacts")
 
 
+def _pilot_scope(root, metadata, read_file, accounted, union, frozen_at, child_body):
+    parent = metadata["parent_selection"]
+    _keys(parent, {"metadata", "qid_list", "selected_count"}, "pilot parent")
+    parent_metadata = loads(read_file(parent["metadata"], owner="parent-metadata",
+                                     expected="parent/selection.json").decode("utf-8"))
+    _require(isinstance(parent_metadata, dict) and parent_metadata.get("kind") == "production",
+             "pilot parent must be a complete production selection")
+    parent_root = root / "parent"
+    _require(_verify(parent_root) is True, "pilot parent is not fully verified")
+    parent_qids = read_file(parent["qid_list"], owner="parent-qids", expected="parent/qids.txt")
+    descriptor = dict(parent["qid_list"], path="qids.txt")
+    _require(descriptor == parent_metadata["qid_list"]
+             and parent["selected_count"] == parent_metadata["selected_count"]
+             and _integer(parent["selected_count"], positive=True), "pilot parent QID descriptor/count differs")
+    _require(metadata["criterion"] == parent_metadata["criterion"]
+             and metadata["discovery_settings"] == parent_metadata["discovery_settings"]
+             and metadata["query"] == parent_metadata["query"]
+             and metadata["sources"] == parent_metadata["sources"],
+             "pilot query/criterion/full graph evidence differs from parent")
+    _require(frozen_at >= _utc(parent_metadata["frozen_at"]), "pilot predates its frozen parent")
+    expected_parent = ("\n".join(sorted(union, key=lambda q: int(q[1:]))) + "\n").encode()
+    _require(parent_qids == expected_parent, "pilot graph evidence differs from full parent scope")
+    _require(child_body and child_body.endswith(b"\n"), "pilot QID list must be nonempty LF text")
+    qids = [line.decode("ascii") for line in child_body[:-1].split(b"\n")]
+    _require(all(re.fullmatch(r"Q[1-9][0-9]*", qid) for qid in qids)
+             and len(qids) == len(set(qids)) and qids == sorted(qids, key=lambda q: int(q[1:]))
+             and set(qids) <= union, "pilot QIDs are not an exact canonical parent subset")
+    for path in parent_root.rglob("*"):
+        relative = path.relative_to(parent_root)
+        if relative.parts[0] != ".state" and path.is_file():
+            accounted.setdefault("parent/" + relative.as_posix(), "parent-payload")
+    return len(qids)
+
+
 def _verify(root):
     _require(root.is_dir() and not root.is_symlink(), "invalid selection directory")
     metadata = loads(_path(root, "selection.json").read_text(encoding="utf-8"))
     _keys(metadata, SELECTION_KEYS, "selection")
     _require(metadata["format"] == "idea-json-backup" and metadata["format_version"] == "1.0.0",
              "wrong selection format/version")
-    _require(metadata["kind"] in ("synthetic", "production"), "unsupported selection kind")
-    _require(metadata["parent_selection"] is None, "unexpected parent selection")
+    _require(metadata["kind"] in ("synthetic", "production", "pilot"), "unsupported selection kind")
+    _require(isinstance(metadata["parent_selection"], dict) if metadata["kind"] == "pilot"
+             else metadata["parent_selection"] is None, "missing or unexpected parent selection")
     _require(metadata["criterion"] == {"property_id": "P5008", "value_id": "Q114241199",
                                       "ranks": ["normal", "preferred"]}, "wrong selection criterion")
     _require(metadata["discovery_settings"] == loads(dumps(SETTINGS)), "wrong discovery settings")
@@ -316,9 +351,13 @@ def _verify(root):
     _require(union, "empty combined selection")
     expected = ("\n".join(sorted(union, key=lambda q: int(q[1:]))) + "\n").encode()
     actual = read_file(metadata["qid_list"], owner="qid-list", expected="qids.txt")
-    _require(actual == expected, "frozen QID list differs from numeric source union")
+    count = len(union)
+    if metadata["kind"] == "pilot":
+        count = _pilot_scope(root, metadata, read_file, accounted, union, frozen_at, actual)
+    else:
+        _require(actual == expected, "frozen QID list differs from numeric source union")
     _require(_integer(metadata["selected_count"], positive=True)
-             and int(metadata["selected_count"].token) == len(union), "wrong selected count")
+             and int(metadata["selected_count"].token) == count, "wrong selected count")
     _inventory(root, accounted)
     return True
 
