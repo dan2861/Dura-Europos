@@ -8,6 +8,8 @@ Checkpoint 2026-11-03: Danu reported Stop 1 creation and separate saved-selectio
 
 Subsequent pilot result: Danu executed that one-batch command; it paused with three unresolved items and zero accepted because Wikidata returned API `maxlag` with Retry-After 5. The complete error response is retained as A000001, consuming one attempt per QID. Scope/overall verification is `not_checked`; source-content/provenance/files checks passed. Guided recovery now uses `resume --run backup/idea-pilot-run-001 --max-batches 1` after the persisted cooldown, retaining the same run and quota. Do not rerun `collect` into this directory. This expected transient path is already covered by offline tests; no implementation change is required by the observed evidence.
 
+Second result: Danu's bounded resume also returned maxlag, with the same unfinished counts and passed non-scope checks. A000002 is retained; each QID has now consumed two of three attempts. The recorded ten-second lower bound is `2026-11-03T09:38:41.595270Z`. Recommend waiting a further 15–30 minutes before the final bounded resume. That voluntary wait does not change settings/quota. If the third attempt also fails, retain the run and review the outcome before any further retrieval; do not reset quota or bypass maxlag.
+
 Run commands from `/Users/danu/Documents/ChatGPT/Dura-Europos`. Every new output directory must be absent; do not create it beforehand or reuse an earlier attempt.
 
 ## Stop 1: prepare the exact parent-linked subset
