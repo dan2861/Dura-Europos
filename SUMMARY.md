@@ -1,6 +1,6 @@
 # IDEA / Dura-Europos project summary
 
-Updated: 2026-11-02 (America/Chicago).
+Updated: 2026-11-03 (America/Chicago).
 
 ## Current user-defined scope
 
@@ -9,7 +9,7 @@ Danu changed the project scope on 2026-10-26:
 1. Back up all IDEA-tagged Wikidata items as complete JSON files in Dataverse.
 2. Identify the links/items requiring a Yale LUX destination, with LUX given priority; existing links need not be replaced. The concrete Wikidata rank policy is still being discussed.
 
-Danu selected **one export before edits**, rather than recurring snapshots, for the initial plan. The offline MVP is now complete after approved planning and automatic implementation. On 2026-11-02 Danu authorized RED → GREEN → commit increments until the MVP is done, superseding guided execution within this scope. See docs/idea-json-backup/implementation-log.md for current checkpoints. Dataset retrieval, upload/publication, Wikidata edits, and colleague messages have not been requested by this scope change.
+Danu selected **one export before edits**, rather than recurring snapshots, for the initial plan. The offline MVP is now complete after approved planning and automatic implementation. On 2026-11-02 Danu authorized RED → GREEN → commit increments until the MVP is done, superseding guided execution within this scope. See docs/idea-json-backup/implementation-log.md for current checkpoints. On 2026-11-03 Danu requested continuing through the next backup stages with automatic offline TDD/small commits, and clarified that operational CLI commands must pause for Danu’s guided execution. Preparation is authorized; no operational command has been run by the assistant. Wikidata edits, colleague messages and publication remain outside the current work.
 
 On 2026-10-28 Danu confirmed an expected population of approximately 33,000 items and approved the [Spec](docs/idea-json-backup/design.md) and [Plan](docs/idea-json-backup/plan.md), with MVP-first delivery. Danu subsequently authorized automatic offline RED → GREEN → commit increments until the MVP was done, superseding the earlier guided execution choice within this scope.
 
@@ -21,6 +21,9 @@ The five-CSV preservation deliverable and its manual review are no longer prereq
 
 ## Evidence and continuity
 
+- Latest 2026-11-03 checkpoint: [pilot 001 packet](docs/idea-json-backup/pilot-001/README.md) and exact three-QID input are prepared and separately reviewed. Assistant runs offline TDD automatically; Danu runs pilot/discovery/collection/Dataverse operational commands with guidance. The prepared output backup/mvp-live-001 did not exist during preflight. Local saved Q124840826, Q134471203 and Q122814653 matched their historical manifest descriptors and each contained a normal-rank IDEA tag. No new entity request was made. The next required action is Danu’s one-batch collect command; pause for its result before verification/review or expansion. Existing collection behavior is already tested, so preparation added no manufactured RED test.
+- Local evidence uncertainty found during pilot selection: Q118590944.json now has 88,246 bytes and a different hash from the old manifest’s 26,573-byte descriptor. Cause/content equivalence is uninvestigated; it was excluded from the pilot, and the historical files/manifest were left untouched. See review/idea-json-backup-pilot-001.md.
+- On 2026-11-03 Danu reported a successful offline rehearsal in `backup/mvp-offline-001`: invented response preserved, entity extracted and independent verification passed with no findings. This is user-reported evidence; the assistant did not rerun verification in this turn. No live retrieval or Dataverse upload was involved. At that point Danu asked about next steps; the later continuation request and execution boundary are recorded below.
 - MVP checkpoint `5927838` committed the approved planning documents, first preservation test and stub on 2026-11-02; it was not pushed. Danu confirmed the expected failing test and requested the next guided step. At Danu’s subsequent explicit request, the assistant applied the GREEN edit: preserve response bytes, then extract requested entities using the existing precision-preserving `scripts/sample_backup/jsoncodec.py`. The focused offline check passed (one test). This covers the first successful preservation case; manifest/checksums, independent verification and transport were completed in later increments. The preservation GREEN checkpoint was committed as `d93b0a4`.
 - The root SUMMARY.md was absent when inspected on 2026-10-26. This new current summary records the changed scope. Earlier context is retained in `review/sample-backup-status-before-automatic-2026-10-20/SUMMARY.md` and the sample-backup handoff/history; those files contain superseded checkpoints.
 - Historical project selection is `P5008 = Q114241199`; the new normal/preferred rule is confirmed above. The earlier 33,214-item count and associated property counts were reported by Danu, not a new census. Current official documentation separates main and scholarly query graphs; all-item discovery must cover both or explicitly narrow its claim. No selection query was executed.
