@@ -160,6 +160,54 @@ class ExternalReportTests(unittest.TestCase):
                 self.assertFalse(target.exists())
                 self.assertEqual(protected, (self.files(package), self.files(downloads)))
 
+    def test_validation_checks_inputs_before_staging_before_and_after_publication(self):
+        from scripts.idea_json_backup.external_report import ExternalReport
+        with TemporaryDirectory() as directory:
+            base = Path(directory)
+            package, downloads = self.inputs(base)
+            protected = (self.files(package), self.files(downloads))
+            target = base / "audit.json"
+            observations = []
+
+            def validate():
+                self.assertEqual(protected, (self.files(package), self.files(downloads)))
+                observations.append((target.exists(), len(list(base.glob(".audit.json.*.pending")))))
+
+            report = {"byte_status": "passed"}
+            with ExternalReport(target, protected_roots=(package, downloads)) as sink:
+                sink.write(report, validate=validate)
+            self.assertEqual(observations, [(False, 0), (False, 1), (True, 0)])
+            self.assertEqual(target.read_bytes(), (codec.dumps(report) + "\n").encode())
+
+    def test_input_change_during_staging_stops_publication_and_retains_pending(self):
+        from scripts.idea_json_backup import external_report
+        with TemporaryDirectory() as directory:
+            base = Path(directory)
+            package, downloads = self.inputs(base)
+            protected = (self.files(package), self.files(downloads))
+            target = base / "audit.json"
+            original = external_report._write
+
+            def validate():
+                if protected != (self.files(package), self.files(downloads)):
+                    raise ValueError("Invented input changed")
+
+            def change_download(output, name, body):
+                original(output, name, body)
+                (downloads / "received.bin").write_bytes(b"changed during report staging")
+
+            report = {"byte_status": "passed"}
+            with external_report.ExternalReport(target, protected_roots=(package, downloads)) as sink:
+                with patch.object(external_report, "_write", side_effect=change_download):
+                    with self.assertRaisesRegex(ValueError, "Invented input changed"):
+                        sink.write(report, validate=validate)
+            pending = list(base.glob(".audit.json.*.pending"))
+            self.assertEqual(len(pending), 1)
+            self.assertEqual(pending[0].read_bytes(), (codec.dumps(report) + "\n").encode())
+            self.assertFalse(target.exists())
+            self.assertEqual(protected[0], self.files(package))
+            self.assertEqual((downloads / "received.bin").read_bytes(), b"changed during report staging")
+
     def inputs(self, base):
         package, downloads = base / "package", base / "downloads"
         package.mkdir()

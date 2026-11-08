@@ -67,18 +67,24 @@ class ExternalReport:
             return
         raise FileExistsError("External report destination already exists")
 
-    def write(self, report):
+    def write(self, report, *, validate=None):
         if self._directory is None:
             raise ValueError("External report context is not open")
         try:
             self._check()
             self._absent()
+            if validate is not None:
+                validate()
             body = (codec.dumps(report) + "\n").encode("utf-8")
             pending = f".{self.target.name}.{uuid.uuid4().hex}.pending"
             _write(self._directory, pending, body)
             self._check()
+            if validate is not None:
+                validate()
             _publish(self._directory, pending, self.target.name)
             self._check()
+            if validate is not None:
+                validate()
             actual = _output_hash(self._directory, self.target.name)
             if actual != describe(self.target.name, body):
                 raise ValueError("Published external report bytes changed")
