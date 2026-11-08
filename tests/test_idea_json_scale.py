@@ -81,6 +81,7 @@ class ScaleTests(unittest.TestCase):
                        sleep=clock.sleep, now_fn=clock.utc, monotonic=clock.monotonic)
                 self.assertEqual(reads[phase, "items"], count)
                 self.assertGreaterEqual(hashes[phase], count)
+                self.assertLessEqual(hashes[phase], count * 2)
                 self.assertLessEqual(reads[phase, "responses"], batches * 3)
                 self.assertEqual(snapshots[phase], 1)
 
@@ -90,6 +91,7 @@ class ScaleTests(unittest.TestCase):
                 self.assertEqual(report["counts"]["accepted"], count)
                 self.assertEqual(reads[phase, "items"], count)
                 self.assertGreaterEqual(hashes[phase], count)
+                self.assertLessEqual(hashes[phase], count * 2)
                 self.assertLessEqual(reads[phase, "responses"], batches * 2)
                 self.assertEqual(snapshots[phase], 0)
             metrics = {"selected": count, "batches": batches,
