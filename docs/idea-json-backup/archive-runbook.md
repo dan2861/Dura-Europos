@@ -6,7 +6,7 @@ The candidate profile is [candidate-archive-profile.json](candidate-archive-prof
 
 ## First guided stop: package the finalized pilot
 
-Completed 2026-11-08: Danu created package `20261108T184113.708915Z-a1cb9dfcab5e`; all three checks passed with no findings. Read-only saved review is clear: one 503,551-byte part, exactly28 public payload files /8,850,019 bytes, all matching finalized source. The output directory now exists; do not rerun creation into it. **Current guided stop is the separate saved-package check below.**
+Completed 2026-11-08: Danu created package `20261108T184113.708915Z-a1cb9dfcab5e`; all three checks passed with no findings. Read-only saved review is clear: one 503,551-byte part, exactly28 public payload files /8,850,019 bytes, all matching finalized source. The output directory now exists; do not rerun creation into it. **Separate saved-package verification subsequently passed; local pilot packaging is complete. The next gate is preparing the Yale draft retention test.**
 
 Read-only preflight confirms the finalized pilot has 28 public files totaling 8,850,019 bytes and `backup/idea-pilot-package-001` is absent. These fit one part under the candidate limits. From `/Users/danu/Documents/ChatGPT/Dura-Europos`, Danu runs:
 
@@ -25,6 +25,8 @@ Stop and return the complete report. Expected: status passed, checks inventory/a
 
 ## Separate guided check of saved package
 
+Completed2026-11-08: Danu reported the separate check passed at `2026-11-08T19:41:00.081646Z`, all three checks passed with no findings. Original local inventory/archive bytes and saved report remain unchanged. The following command is recorded history for this run.
+
 After the first report and saved evidence are reviewed, Danu runs:
 
 ```bash
@@ -41,4 +43,4 @@ After local package review, establish the actual Yale dataset/draft destination,
 
 Full 33,709-item collection still needs its own reviewed service-feasibility and operational gate. Synthetic scale checks establish bounded implementation behavior, not live population sizes, runtime, service endorsement or upload handling. Full package/deposit verification and publication remain separate outcomes.
 
-Implementation evidence: [increment log](production-log.md), [scale review](../../review/idea-json-backup-scale-review-2026-11-07.md) and [archive-stage review](../../review/idea-json-backup-archives-review-2026-11-08.md). These are offline implementation/review results; Danu has now created the actual pilot package and reported passed; its separate saved-package check is the next guided operation.
+Implementation evidence: [increment log](production-log.md), [scale review](../../review/idea-json-backup-scale-review-2026-11-07.md) and [archive-stage review](../../review/idea-json-backup-archives-review-2026-11-08.md). These are offline implementation/review results; Danu has now created the actual pilot package and reported passed; its separate saved-package check has also passed. The next operational gate is a guided Yale draft retention test after destination/access and offline deposit checking are ready.
