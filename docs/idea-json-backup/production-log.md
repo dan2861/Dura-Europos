@@ -71,3 +71,11 @@ Danu’s third guided attempt accepted all three items and the existing audit re
 | Explicit guided documentation command | write-readme action rejected by parser | Nine CLI tests pass; new offline write-readme action invokes only the locked missing-documentation helper. Existing run creation, statuses, sources, item bytes and quota remain unchanged. |
 
 Final coherent offline command `python3 -B -m unittest discover -s tests -q` passed **238 tests (187 IDEA JSON and 51 historical sample)** in 15.678 seconds. Separate review reproduced invented legacy repair → public audit → finalization → immutable re-audit with sockets denied and found no remaining blocker for the guided write-readme command. This clears the implementation; the actual pilot still lacks its README until Danu executes that guided step.
+
+## 2026-11-07: finalized pilot reviewed; offline scale/archive stage
+
+Danu’s final read-only verify returned passed at saved UTC `2026-11-08T03:44:04.014053Z`, all four checks passed with no findings, three selected/accepted and none unresolved. This completes the guided pilot review after actual finalization. The earlier --write report was supplied again with its original checked_at; no successful repeat-finalization behavior is inferred from that repeated block. The immutable pilot remains separate from the 33,709-item parent selection.
+
+| Increment | RED observed | GREEN evidence |
+| --- | --- | --- |
+| Instrumented collection/restore/audit passes | Already GREEN regression coverage; no artificial failure | 151 invented items through real files/SQLite: no accepted-item rereads during collection, at most three source reads per batch, bounded per-item hashing, two public snapshot generations; resume reads each accepted item once without fetching, and independent audit reads each item once. Durability calls remain enabled. The explicit 33,000-item exercise is running separately; no full-scale result is claimed yet. |
