@@ -80,6 +80,14 @@ class Directory:
         with self.open(name) as source:
             return b"".join(iter(lambda: source.read(65536), b""))
 
+    def matches(self, name, body):
+        with self.open(name) as source:
+            for offset in range(0, len(body), 65536):
+                expected = body[offset:offset + 65536]
+                if source.read(len(expected)) != expected:
+                    return False
+            return not source.read(1)
+
     def digest(self, name):
         digest, size = sha256(), 0
         with self.open(name) as source:
@@ -117,7 +125,7 @@ def _bytes(package_dir, downloads_dir, report, context):
         context["expected_files"] = set(expected)
         require(all(local.get(name) == value for name, value in expected.items()),
                 "input_changed", "Local baseline changed after its audit")
-        require(downloads.body("package-inventory.json") == body, "downloaded_inventory_mismatch",
+        require(downloads.matches("package-inventory.json", body), "downloaded_inventory_mismatch",
                 "Downloaded inventory differs from the preserved local bytes", "package-inventory.json")
         require(downloads.names() == set(expected), "downloaded_file_set_mismatch",
                 "Downloaded files must contain exactly the baseline inventory and all archive parts")
@@ -160,7 +168,7 @@ def _credential_key(value):
     return key in {"auth", "authorization", "authtoken", "apikey", "apitoken", "xdataversekey",
                    "accesskey", "accesskeyid", "accesstoken", "token", "signature", "sig", "key",
                    "password", "passwd", "secret", "secretkey", "session", "sessionid", "sessionkey",
-                   "securitytoken", "credential", "credentials", "awsaccesskeyid", "jwt", "code"} or key.startswith(
+                   "securitytoken", "credential", "credentials", "awsaccesskeyid", "jwt", "code"} or key.endswith("token") or key.startswith(
                        ("xamz", "xgoog", "oauth", "oidc"))
 
 
@@ -174,6 +182,16 @@ def _url(value):
             or parsed.username is not None or parsed.password is not None):
         raise ValueError("Invalid acquisition URL")
     parsed.port  # validates malformed/out-of-range ports without echoing parser exceptions
+    path = parsed.path
+    for _ in range(3):
+        decoded = unquote(path)
+        if decoded == path:
+            break
+        path = decoded
+    segments = path.casefold().split("/")
+    if any(segment in {"privateurldatasetversion", "previewurldatasetversion"}
+           and any(segments[index + 1:]) for index, segment in enumerate(segments)):
+        raise ValueError("Unsafe acquisition URL")
     if any(_credential_key(key) for query in (parsed.query, parsed.fragment)
            for key, _ in parse_qsl(query, keep_blank_values=True)):
         raise ValueError("Unsafe acquisition URL")
