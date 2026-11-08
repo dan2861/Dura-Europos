@@ -1,0 +1,9 @@
+{
+  "format": "tar.gz",
+  "max_members": 5000,
+  "max_payload_bytes_per_part": 268435456,
+  "gzip_level": 6,
+  "gzip_mtime": 0,
+  "tar_header_policy": "uid=0,gid=0,uname=,gname=,mode=0644,mtime=0",
+  "retention_evidence": null
+}

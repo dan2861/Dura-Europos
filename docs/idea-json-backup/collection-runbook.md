@@ -10,7 +10,7 @@ Subsequent pilot result: Danu executed that one-batch command; it paused with th
 
 Second result: Danu's bounded resume also returned maxlag, with the same unfinished counts and passed non-scope checks. A000002 is retained; each QID has now consumed two of three attempts. The recorded ten-second lower bound is `2026-11-03T09:38:41.595270Z`. Recommend waiting a further 15–30 minutes before the final bounded resume. That voluntary wait does not change settings/quota. If the third attempt also fails, retain the run and review the outcome before any further retrieval; do not reset quota or bypass maxlag.
 
-Third result (November 7 New York; saved UTC November 8): all three accepted, none unresolved, all four checks passed. Local review confirms strict item/source equality and retained earlier errors. The run is collected and awaits explicit finalization. Review found that the original implementation omitted the required README and its audit accounting; the reviewed offline fix is now implemented. **README completion, status, separate audit and explicit finalization subsequently passed; the current guided stop is the last read-only audit below.** Do not resume or restart collection.
+Third result (November 7 New York; saved UTC November 8): all three accepted, none unresolved, all four checks passed. Local review confirms strict item/source equality and retained earlier errors. The run is collected and awaits explicit finalization. Review found that the original implementation omitted the required README and its audit accounting; the reviewed offline fix is now implemented. **README completion, status, separate audit, explicit finalization and final read-only audit all subsequently passed. Pilot review is complete; offline scale/archive work is now active.** Do not resume or restart collection.
 
 Run commands from `/Users/danu/Documents/ChatGPT/Dura-Europos`. Every new output directory must be absent; do not create it beforehand or reuse an earlier attempt.
 
@@ -55,7 +55,7 @@ Stop and return its report. The one-batch limit is an execution bound, not a com
 
 Finalization result: Danu reported verify --write passed at saved UTC `2026-11-08T03:40:05.657190Z`. Saved manifest/report confirm finalized/passed, all three accepted, generation 25 and unchanged recorded payload hashes. Do not repeat --write or resume the finalized pilot. The earlier commands below are completed history for this run.
 
-Finalization checkpoint 2026-11-07: Danu reported status collected, selected/accepted 3, pending/unresolved 0, generation 25, then separate read-only verification passed all four checks with no findings (saved UTC checked_at `2026-11-08T03:38:03.825417Z`). README and public record descriptors remain unchanged; no final report exists yet. That finalization subsequently passed; the current guided stop is the final read-only check of the published finalized state below.
+Finalization checkpoint 2026-11-07: Danu reported status collected, selected/accepted 3, pending/unresolved 0, generation 25, then separate read-only verification passed all four checks with no findings (saved UTC checked_at `2026-11-08T03:38:03.825417Z`). README and public record descriptors remain unchanged; no final report exists yet. That finalization subsequently passed; that final read-only check subsequently passed and closes pilot review.
 
 Documentation checkpoint 2026-11-07: Danu reported write-readme passed, created true, 2,397 bytes, SHA-256 `71fcfd0428879affafb8f545fb60f609104d6d64adb6b8a71a70c9dee4c27150`. Read-only review confirms identity/scope and unchanged inventory/attempt descriptors, collected phase, generation 25 and all three accepted. Proceed one command at a time from status; the documentation command is recorded below for provenance and should not be repeated as a missing-file repair.
 
@@ -110,6 +110,8 @@ Missing/corrupt state, changed immutable inputs, saving failures or `server_wait
 Public records link each item to its complete source response and recorded descriptors/checksums. `.state/` contains local SQLite/lock/receipt/staging/finalization recovery artifacts; retain it locally and never upload it as collection payload.
 
 ## Boundary before expansion
+
+Pilot review completed 2026-11-07: Danu’s final read-only audit at saved UTC `2026-11-08T03:44:04.014053Z` passed all checks, all three accepted, no findings. Saved report/manifest and read-only journal reconciliation are clear; the pilot remains immutable. No further collection or write-finalization command is needed for this run. The approved offline synthetic scale/archive stage is active; its candidate packaging command will be provided only after separate reviews.
 
 Full 33,709-item collection must wait for this parent-linked production pilot review and later synthetic scale/archive feasibility checks. No full-collection command is supplied at this stage. A passing small pilot is not a bulk-service endorsement. Packaging, Yale archive-retention testing, deposit verification and publication remain later stages; destination/access/metadata still need resolution before deposit. No Wikidata edits are part of this workflow.
 
