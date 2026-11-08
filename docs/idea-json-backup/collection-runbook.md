@@ -53,6 +53,8 @@ Stop and return its report. The one-batch limit is an execution bound, not a com
 
 ## Guided status, audit and finalization
 
+Finalization checkpoint 2026-11-07: Danu reported status collected, selected/accepted 3, pending/unresolved 0, generation 25, then separate read-only verification passed all four checks with no findings (saved UTC checked_at `2026-11-08T03:38:03.825417Z`). README and public record descriptors remain unchanged; no final report exists yet. **Current guided stop is explicit verify --write finalization below.**
+
 Documentation checkpoint 2026-11-07: Danu reported write-readme passed, created true, 2,397 bytes, SHA-256 `71fcfd0428879affafb8f545fb60f609104d6d64adb6b8a71a70c9dee4c27150`. Read-only review confirms identity/scope and unchanged inventory/attempt descriptors, collected phase, generation 25 and all three accepted. Proceed one command at a time from status; the documentation command is recorded below for provenance and should not be repeated as a missing-file repair.
 
 The actual pilot was created before README generation was fixed. First, Danu explicitly adds its missing scope documentation offline:
