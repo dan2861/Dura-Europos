@@ -39,7 +39,7 @@ On failure retain all output, including pending inventory/partial archives, and 
 
 ## Later operational gate
 
-After local package review, establish the actual Yale dataset/draft destination, depositor access, required metadata and upload method. A separately guided draft retention test must upload the candidate archive(s) plus external inventory, download all deposited files, compare the downloaded inventory with the local baseline and verify archive/all-payload roundtrip. Record actual dataset/version/file identifiers and acquisition evidence. No upload, colleague contact or publication is implied by local packaging.
+Local review is complete. Follow [retention-test.md](retention-test.md) to establish the actual Yale dataset/draft destination, depositor access, required metadata and upload method. The offline supplied-download checker is implemented, with 302 full-suite tests passing. A separately guided draft retention test must upload the candidate archive(s) plus external inventory, download all deposited files, compare the downloaded inventory with the local baseline and verify archive/all-payload roundtrip. Record actual dataset/version/file identifiers and acquisition evidence. No upload, colleague contact or publication is implied by local packaging.
 
 Full 33,709-item collection still needs its own reviewed service-feasibility and operational gate. Synthetic scale checks establish bounded implementation behavior, not live population sizes, runtime, service endorsement or upload handling. Full package/deposit verification and publication remain separate outcomes.
 

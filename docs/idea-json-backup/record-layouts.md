@@ -1,6 +1,6 @@
 # IDEA JSON backup: planned record layouts
 
-Date: 2026-10-28. Companion to the [Plan](plan.md), approved by Danu as the production roadmap with an [MVP-first delivery direction](mvp.md). Status 2026-11-08: selection, manifest, item/attempt records, collection verification and candidate package records are implemented offline. Acquisition and deposit records remain planned. These production schemas are distinct from the separately labeled first prototype; the public record keys below are unchanged.
+Date: 2026-10-28. Companion to the [Plan](plan.md), approved by Danu as the production roadmap with an [MVP-first delivery direction](mvp.md). Status 2026-11-08: selection, manifest, item/attempt records, collection verification, candidate packages and offline acquisition/deposit verification are implemented. Actual Dataverse transfer remains unperformed. These production schemas are distinct from the separately labeled first prototype; the public record keys below are unchanged.
 
 ## Common rules
 
@@ -104,3 +104,5 @@ Operator-supplied acquisition.json keys: `dataset_url`, `persistent_id`, `datase
 deposit-verification.json: `{format_version, package_id, checked_at, acquisition, byte_status, deposit_status, findings, publication}`. byte_status can pass for exact supplied files. deposit_status stays not_checked without complete actual dataset/version/acquisition evidence; with it, report byte comparisons plus explicitly operator-recorded provenance. publication is null until a separately requested actual publication, then `{persistent_id, dataset_version, published_at, recorded_by}`. Neither collection nor deposit verification sets publication automatically.
 
 This record is a verification result, not a substitute for uploading/downloading the actual files. The actual target collection, depositor access and metadata must be resolved before the separately requested deposit.
+
+Implemented diagnostic behavior: omitting acquisition evidence or supplying safe null unknowns can establish byte equivalence while deposit_status remains not_checked. Malformed/unsafe receipts fail without echoing supplied secret URLs; stable public identifiers and leading zeros remain exact. The receipt and optional report must be external to both input directories. Downloaded files contain exactly the external inventory and every archive part, without the local package-verification.json. The checker compares inventory bytes against the preserved local original before trusting downloaded archive metadata. Exit1 covers either failed outcome; exit2 means provenance remains incomplete; exit0 requires both outcomes passed. Publication remains null in every offline result.

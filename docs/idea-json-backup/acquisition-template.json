@@ -1,0 +1,22 @@
+{
+  "dataset_url": null,
+  "persistent_id": null,
+  "dataset_version": null,
+  "downloaded_at": null,
+  "files": [
+    {
+      "remote_file_id": null,
+      "download_url": null,
+      "local_path": "package-inventory.json",
+      "downloaded_at": null
+    },
+    {
+      "remote_file_id": null,
+      "download_url": null,
+      "local_path": "part-00001.tar.gz",
+      "downloaded_at": null
+    }
+  ],
+  "recorded_by": null,
+  "evidence_kind": "operator_recorded"
+}
