@@ -2,6 +2,7 @@
 import argparse
 import json
 from pathlib import Path
+import re
 import sys
 import sqlite3
 from urllib.parse import quote
@@ -18,12 +19,28 @@ from scripts.idea_json_backup.collection_verify import verify_collection
 from scripts.idea_json_backup.finalize import finalize
 from scripts.idea_json_backup.files import write_bytes
 from scripts.idea_json_backup.documentation import write_readme
+from scripts.idea_json_backup.package import package_collection, write_package_report
+from scripts.idea_json_backup.package_verify import verify_package
 from scripts.sample_backup import jsoncodec as codec
 
 
 def _qids(path):
     with path.open(encoding="utf-8", newline=None) as stream:
         return [line.removesuffix("\n") for line in stream]
+
+
+def _profile(path):
+    value = codec.loads(path.read_bytes())
+    if not isinstance(value, dict):
+        raise ValueError("Candidate archive profile must be an object")
+    converted = {}
+    for key, field in value.items():
+        if isinstance(field, codec.Number):
+            if not re.fullmatch(r"-?(?:0|[1-9][0-9]*)", field.token):
+                raise ValueError("Candidate archive profile numbers must be JSON integers")
+            field = int(field.token)
+        converted[key] = field
+    return converted
 
 
 def _status(root):
@@ -66,6 +83,12 @@ def main(argv=None):
     command.add_argument("--run", required=True, type=Path)
     command = commands.add_parser("write-readme", help="Offline: add missing scope documentation to a stopped unfinalized run")
     command.add_argument("--run", required=True, type=Path)
+    command = commands.add_parser("package", help="Offline candidate archives and independent local roundtrip")
+    command.add_argument("--run", required=True, type=Path)
+    command.add_argument("--output", required=True, type=Path)
+    command.add_argument("--profile", required=True, type=Path)
+    command = commands.add_parser("verify-package", help="Read-only candidate archive audit in temporary storage")
+    command.add_argument("directory", type=Path)
     command = commands.add_parser("verify", help="Read-only public audit; --write finalizes a stopped run")
     command.add_argument("--run", required=True, type=Path)
     command.add_argument("--write", action="store_true")
@@ -84,6 +107,16 @@ def main(argv=None):
             report = _status(args.run)
         elif args.command == "write-readme":
             report = write_readme(args.run)
+        elif args.command == "package":
+            try:
+                output = args.output.resolve()
+            except RuntimeError as exc:
+                raise ValueError("Unsafe package output path: " + str(exc)) from exc
+            inventory = package_collection(args.run, output, profile=_profile(args.profile))
+            report = verify_package(output)
+            write_package_report(output, report, expected_inventory=inventory)
+        elif args.command == "verify-package":
+            report = verify_package(args.directory)
         elif args.command == "verify":
             report = finalize(args.run) if args.write else verify_collection(args.run)
             if args.report is not None:

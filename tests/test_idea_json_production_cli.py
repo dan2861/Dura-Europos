@@ -20,6 +20,92 @@ def result(*qids):
 
 
 class ProductionCommandTests(unittest.TestCase):
+    def test_package_uses_explicit_profile_then_independent_check_and_report(self):
+        with TemporaryDirectory() as directory:
+            base = Path(directory)
+            profile = {"format": "tar.gz", "max_members": 5000,
+                       "max_payload_bytes_per_part": 268435456, "gzip_level": 6,
+                       "gzip_mtime": 0, "tar_header_policy": "uid=0,gid=0,uname=,gname=,mode=0644,mtime=0",
+                       "retention_evidence": None}
+            (base / "profile.json").write_text(json.dumps(profile))
+            report = {"status": "passed", "findings": [], "package_id": "invented"}
+            calls = []
+
+            def produce(run, output, *, profile):
+                calls.append("produce")
+                output.mkdir()
+                return {"package_id": "invented"}
+
+            def audit(output):
+                calls.append("audit")
+                return report
+
+            def save(output, value, *, expected_inventory):
+                calls.append("report")
+                self.assertEqual(expected_inventory, {"package_id": "invented"})
+                (output / "package-verification.json").write_text(json.dumps(value))
+
+            with patch("scripts.export_idea_json.package_collection", create=True, side_effect=produce) as producer, patch(
+                    "scripts.export_idea_json.verify_package", create=True, side_effect=audit), patch(
+                    "scripts.export_idea_json.write_package_report", create=True, side_effect=save):
+                code, actual = self.invoke(["package", "--run", "run", "--output", str(base / "package"),
+                                            "--profile", str(base / "profile.json")])
+            self.assertEqual((code, actual), (0, report))
+            self.assertEqual(calls, ["produce", "audit", "report"])
+            producer.assert_called_once_with(Path("run"), (base / "package").resolve(), profile=profile)
+            self.assertEqual(json.loads((base / "package/package-verification.json").read_bytes()), report)
+
+    def test_verify_package_is_read_only_and_profile_parse_is_strict(self):
+        report = {"status": "passed", "findings": []}
+        with patch("scripts.export_idea_json.verify_package", create=True, return_value=report) as audit, patch(
+                "scripts.export_idea_json.package_collection", create=True) as producer:
+            self.assertEqual(self.invoke(["verify-package", "package"]), (0, report))
+            audit.assert_called_once_with(Path("package"))
+            producer.assert_not_called()
+        with TemporaryDirectory() as directory:
+            profile = Path(directory) / "profile.json"
+            for body in ('{"format":"tar.gz","format":"tar.gz"}', '{"gzip_level":6.0}'):
+                profile.write_text(body)
+                with patch("scripts.export_idea_json.package_collection", create=True) as producer:
+                    code, report = self.invoke(["package", "--run", "run", "--output", "output", "--profile", str(profile)])
+                self.assertEqual(code, 1)
+                producer.assert_not_called()
+
+    def test_invented_finalized_collection_packages_and_reaudits_through_cli(self):
+        from test_idea_json_finalize import fixture
+        from scripts.idea_json_backup.finalize import finalize
+        with TemporaryDirectory() as directory:
+            base = Path(directory)
+            run = fixture(directory)
+            self.assertEqual(finalize(run)["status"], "passed")
+            source = {p.relative_to(run): p.read_bytes() for p in run.rglob("*")
+                      if p.is_file() and ".state" not in p.relative_to(run).parts}
+            profile = Path(__file__).resolve().parents[1] / "docs/idea-json-backup/candidate-archive-profile.json"
+            output = base / "package"
+            with patch("socket.socket.connect", side_effect=AssertionError("Offline package CLI cannot retrieve")):
+                code, report = self.invoke(["package", "--run", str(run), "--output", str(output),
+                                            "--profile", str(profile)])
+                self.assertEqual(code, 0, report)
+                self.assertEqual(report["status"], "passed")
+                before = {p.relative_to(output): p.read_bytes() for p in output.iterdir()}
+                code, audit = self.invoke(["verify-package", str(output)])
+            self.assertEqual(code, 0, audit)
+            self.assertEqual(audit["status"], "passed")
+            self.assertEqual(before, {p.relative_to(output): p.read_bytes() for p in output.iterdir()})
+            self.assertEqual(source, {p.relative_to(run): p.read_bytes() for p in run.rglob("*")
+                                     if p.is_file() and ".state" not in p.relative_to(run).parts})
+
+    def test_looped_package_output_is_reported_before_producer_runs(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "loop").symlink_to("loop")
+            with patch("scripts.export_idea_json.package_collection") as producer:
+                code, report = self.invoke(["package", "--run", "run", "--output", str(root / "loop"),
+                                            "--profile", "profile.json"])
+            self.assertEqual(code, 1)
+            self.assertEqual(report["status"], "failed")
+            producer.assert_not_called()
+
     def test_write_readme_is_an_explicit_offline_handler(self):
         report = {"status": "passed", "findings": [], "created": True}
         with patch("scripts.export_idea_json.write_readme", create=True, return_value=report) as writer, patch(
