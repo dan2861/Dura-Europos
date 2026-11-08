@@ -1,12 +1,12 @@
 # Candidate archives: guided pilot packaging
 
-Prepared 2026-11-07. **Implementation/review pending; do not run these commands until clearance is recorded.** Danu executes operational commands one guided step at a time. The assistant implements/tests offline with invented fixtures. The finalized three-item pilot remains immutable throughout packaging.
+Prepared 2026-11-07; reviewed 2026-11-08. **Implementation, separate component reviews and final integrated review are clear for guided candidate packaging of the finalized pilot.** The full offline suite passed 273 tests; the separate real-files/SQLite 33,000-item scale exercise also passed. Danu executes operational commands one guided step at a time. The assistant implements/tests offline with invented fixtures. The finalized three-item pilot remains immutable throughout packaging.
 
 The candidate profile is [candidate-archive-profile.json](candidate-archive-profile.json): tar.gz, gzip level 6, deterministic gzip/tar metadata, at most 5,000 regular payload files or 256 MiB summed uncompressed payload per part. A single oversized file causes a hold. These are provisional test settings, not established Yale limits; retention_evidence stays null until an actual draft roundtrip test. Archive header/part overhead can make an archive's physical size differ from its summed payload limit.
 
 ## First guided stop: package the finalized pilot
 
-From `/Users/danu/Documents/ChatGPT/Dura-Europos`, after implementation/review clearance, Danu runs:
+Read-only preflight confirms the finalized pilot has 28 public files totaling 8,850,019 bytes and `backup/idea-pilot-package-001` is absent. These fit one part under the candidate limits. From `/Users/danu/Documents/ChatGPT/Dura-Europos`, Danu runs:
 
 ```bash
 python3 -B -m scripts.export_idea_json package \
@@ -38,3 +38,5 @@ On failure retain all output, including pending inventory/partial archives, and 
 After local package review, establish the actual Yale dataset/draft destination, depositor access, required metadata and upload method. A separately guided draft retention test must upload the candidate archive(s) plus external inventory, download all deposited files, compare the downloaded inventory with the local baseline and verify archive/all-payload roundtrip. Record actual dataset/version/file identifiers and acquisition evidence. No upload, colleague contact or publication is implied by local packaging.
 
 Full 33,709-item collection still needs its own reviewed service-feasibility and operational gate. Synthetic scale checks establish bounded implementation behavior, not live population sizes, runtime, service endorsement or upload handling. Full package/deposit verification and publication remain separate outcomes.
+
+Implementation evidence: [increment log](production-log.md), [scale review](../../review/idea-json-backup-scale-review-2026-11-07.md) and [archive-stage review](../../review/idea-json-backup-archives-review-2026-11-08.md). These are offline implementation/review results; the actual pilot package remains Danu’s next guided operation.

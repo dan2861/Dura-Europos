@@ -1,6 +1,6 @@
 # Production collector: guided pilot runbook
 
-Reviewed 2026-11-03; updated 2026-11-07 after the successful third pilot attempt and documentation fix. **Offline collection-stage reviews are clear for the guided parent-linked pilot.** The current full offline suite passed 238 tests, including the historical sample suite. Danu executes operational commands one guided step at a time and returns each report. The assistant runs offline TDD and makes local commits. Full-population collection, scale and archive readiness are not established by this clearance.
+Reviewed 2026-11-03; updated 2026-11-07 after the successful third pilot attempt and documentation fix. **Offline collection-stage reviews are clear for the guided parent-linked pilot.** The collection-stage suite passed 238 tests; the later archive-stage full suite passed 273, including the historical sample suite. This pilot workflow is complete; proceed to the archive runbook after the recorded reviews. Danu executes operational commands one guided step at a time and returns each report. The assistant runs offline TDD and makes local commits. Full-population collection, scale and archive readiness are not established by this clearance.
 
 The saved production parent `backup/idea-selection-001` contains the frozen 33,709-QID population. The earlier MVP pilot tested prototype preservation; it did not exercise this production journal, recovery or finalization workflow. Start with a parent-linked three-item production pilot.
 
@@ -111,7 +111,7 @@ Public records link each item to its complete source response and recorded descr
 
 ## Boundary before expansion
 
-Pilot review completed 2026-11-07: Danu’s final read-only audit at saved UTC `2026-11-08T03:44:04.014053Z` passed all checks, all three accepted, no findings. Saved report/manifest and read-only journal reconciliation are clear; the pilot remains immutable. No further collection or write-finalization command is needed for this run. The approved offline synthetic scale/archive stage is active; its candidate packaging command will be provided only after separate reviews.
+Pilot review completed 2026-11-07: Danu’s final read-only audit at saved UTC `2026-11-08T03:44:04.014053Z` passed all checks, all three accepted, no findings. Saved report/manifest and read-only journal reconciliation are clear; the pilot remains immutable. No further collection or write-finalization command is needed for this run. The approved offline synthetic scale/archive stage is now implemented and separately reviewed: 33,000 synthetic items and 273 full-suite tests passed. Next is the guided candidate packaging command in the [archive runbook](archive-runbook.md).
 
 Full 33,709-item collection must wait for this parent-linked production pilot review and later synthetic scale/archive feasibility checks. No full-collection command is supplied at this stage. A passing small pilot is not a bulk-service endorsement. Packaging, Yale archive-retention testing, deposit verification and publication remain later stages; destination/access/metadata still need resolution before deposit. No Wikidata edits are part of this workflow.
 

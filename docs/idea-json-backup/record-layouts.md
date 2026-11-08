@@ -1,6 +1,6 @@
 # IDEA JSON backup: planned record layouts
 
-Date: 2026-10-28. Companion to the [Plan](plan.md), approved by Danu as the production roadmap with an [MVP-first delivery direction](mvp.md). Status 2026-11-03: selection, manifest, item/attempt records and collection verification are implemented and offline-reviewed. Package, acquisition and deposit records remain planned. These production schemas are distinct from the separately labeled first prototype; the schema requirements below are unchanged.
+Date: 2026-10-28. Companion to the [Plan](plan.md), approved by Danu as the production roadmap with an [MVP-first delivery direction](mvp.md). Status 2026-11-08: selection, manifest, item/attempt records, collection verification and candidate package records are implemented offline. Acquisition and deposit records remain planned. These production schemas are distinct from the separately labeled first prototype; the public record keys below are unchanged.
 
 ## Common rules
 
@@ -90,6 +90,10 @@ package-inventory.json keys: `format`, `format_version`, `package_id`, `run_id`,
 - profile: `{format, max_members, max_payload_bytes_per_part, gzip_level, gzip_mtime, tar_header_policy, retention_evidence}`. Candidate profile values are in Plan; retention_evidence stays null until an actual requested test identifies Yale dataset/version, uploaded part IDs, download observations and result. A local candidate package can pass local checks without claiming Yale retention/deposit.
 - payload: all finalized payload descriptors, each `{path, size_bytes, sha256, archive_path}`. Every intended item and non-item evidence/metadata file occurs exactly once. .state is explicitly excluded internal recovery state; unexplained files/staging are not implicitly excluded.
 - archives: each `{path, size_bytes, sha256, members}`; members is the exact unique payload-path list. External inventory, archive outputs and package/deposit reports are outside payload, avoiding circularity.
+
+The implemented provisional profile is tar.gz, gzip level 6/mtime 0 with no stored gzip filename, regular payload header uid/gid/mtime 0, empty uname/gname and mode 0644. Its tar_header_policy is `uid=0,gid=0,uname=,gname=,mode=0644,mtime=0`. Bounded PAX path extensions support Unicode/long paths; extension metadata has zero owner/time/mode, while regular payload members use 0644. Test limits may be lowered but cannot exceed 5,000 members or 268,435,456 summed uncompressed payload bytes per part. retention_evidence must remain null for this local candidate. A later empirically supported profile change requires its own review. These details implement the Plan's provisional profile rather than establishing Yale retention.
+
+Successful local output contains package-inventory.json, part-00001.tar.gz-style archives and an external package-verification.json. Publication retains pending inventory/partial archives on failure and never overwrites an existing package. The report writer binds the producer's exact inventory bytes and stable archive inputs; a failed report may retain genuine missing/unsafe/damaged evidence but cannot confer success. A fresh read-only verify-package independently checks saved bytes and safely roundtrips the entire finalized collection in temporary storage.
 
 package-verification.json: `{format_version, package_id, checked_at, status, checks, findings}`. checks names are `inventory`, `archive_integrity`, `payload_roundtrip`, with the common check shape. Compare exact path sets, sizes and hashes after safe extraction. Reports never modify finalized collection bytes.
 
