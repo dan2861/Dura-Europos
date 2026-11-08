@@ -10,7 +10,7 @@ Subsequent pilot result: Danu executed that one-batch command; it paused with th
 
 Second result: Danu's bounded resume also returned maxlag, with the same unfinished counts and passed non-scope checks. A000002 is retained; each QID has now consumed two of three attempts. The recorded ten-second lower bound is `2026-11-03T09:38:41.595270Z`. Recommend waiting a further 15–30 minutes before the final bounded resume. That voluntary wait does not change settings/quota. If the third attempt also fails, retain the run and review the outcome before any further retrieval; do not reset quota or bypass maxlag.
 
-Third result (November 7 New York; saved UTC November 8): all three accepted, none unresolved, all four checks passed. Local review confirms strict item/source equality and retained earlier errors. The run is collected and awaits explicit finalization. Review found that the original implementation omitted the required README and its audit accounting; the reviewed offline fix is now implemented. **README completion subsequently passed; the current guided stop is read-only status below.** Do not resume or restart collection.
+Third result (November 7 New York; saved UTC November 8): all three accepted, none unresolved, all four checks passed. Local review confirms strict item/source equality and retained earlier errors. The run is collected and awaits explicit finalization. Review found that the original implementation omitted the required README and its audit accounting; the reviewed offline fix is now implemented. **README completion, status, separate audit and explicit finalization subsequently passed; the current guided stop is the last read-only audit below.** Do not resume or restart collection.
 
 Run commands from `/Users/danu/Documents/ChatGPT/Dura-Europos`. Every new output directory must be absent; do not create it beforehand or reuse an earlier attempt.
 
@@ -53,7 +53,9 @@ Stop and return its report. The one-batch limit is an execution bound, not a com
 
 ## Guided status, audit and finalization
 
-Finalization checkpoint 2026-11-07: Danu reported status collected, selected/accepted 3, pending/unresolved 0, generation 25, then separate read-only verification passed all four checks with no findings (saved UTC checked_at `2026-11-08T03:38:03.825417Z`). README and public record descriptors remain unchanged; no final report exists yet. **Current guided stop is explicit verify --write finalization below.**
+Finalization result: Danu reported verify --write passed at saved UTC `2026-11-08T03:40:05.657190Z`. Saved manifest/report confirm finalized/passed, all three accepted, generation 25 and unchanged recorded payload hashes. Do not repeat --write or resume the finalized pilot. The earlier commands below are completed history for this run.
+
+Finalization checkpoint 2026-11-07: Danu reported status collected, selected/accepted 3, pending/unresolved 0, generation 25, then separate read-only verification passed all four checks with no findings (saved UTC checked_at `2026-11-08T03:38:03.825417Z`). README and public record descriptors remain unchanged; no final report exists yet. That finalization subsequently passed; the current guided stop is the final read-only check of the published finalized state below.
 
 Documentation checkpoint 2026-11-07: Danu reported write-readme passed, created true, 2,397 bytes, SHA-256 `71fcfd0428879affafb8f545fb60f609104d6d64adb6b8a71a70c9dee4c27150`. Read-only review confirms identity/scope and unchanged inventory/attempt descriptors, collected phase, generation 25 and all three accepted. Proceed one command at a time from status; the documentation command is recorded below for provenance and should not be repeated as a missing-file repair.
 
@@ -88,6 +90,16 @@ python3 -B -m scripts.export_idea_json verify --run backup/idea-pilot-run-001 --
 ```
 
 Finalization publishes the verification report before the final manifest, then commits journal bookkeeping. A passing finalization makes the payload immutable; later audits are read-only. Interrupted finalization must complete only its exact prepared bytes after input checks, without regenerating evidence or fetching again.
+
+## Last guided pilot check: audit the finalized state
+
+After the successful finalization, Danu runs the read-only audit once more:
+
+```bash
+python3 -B -m scripts.export_idea_json verify --run backup/idea-pilot-run-001
+```
+
+This checks the newly published finalized manifest and verification.json together, including exact report inputs/counts/status, in addition to item/source/documentation checks. Return the complete report. Expected passed, all four checks passed, three accepted and no findings. This does not rewrite the finalized payload. After its review, proceed to offline synthetic scale/archive implementation; full live collection and Yale operations remain separately guided.
 
 ## Recovery and retained evidence
 
