@@ -10,7 +10,7 @@ Subsequent pilot result: Danu executed that one-batch command; it paused with th
 
 Second result: Danu's bounded resume also returned maxlag, with the same unfinished counts and passed non-scope checks. A000002 is retained; each QID has now consumed two of three attempts. The recorded ten-second lower bound is `2026-11-03T09:38:41.595270Z`. Recommend waiting a further 15–30 minutes before the final bounded resume. That voluntary wait does not change settings/quota. If the third attempt also fails, retain the run and review the outcome before any further retrieval; do not reset quota or bypass maxlag.
 
-Third result (November 7 New York; saved UTC November 8): all three accepted, none unresolved, all four checks passed. Local review confirms strict item/source equality and retained earlier errors. The run is collected and awaits explicit finalization. Review found that the original implementation omitted the required README and its audit accounting; the reviewed offline fix is now implemented. **Current guided stop: add that missing README using the command below.** Do not resume or restart collection.
+Third result (November 7 New York; saved UTC November 8): all three accepted, none unresolved, all four checks passed. Local review confirms strict item/source equality and retained earlier errors. The run is collected and awaits explicit finalization. Review found that the original implementation omitted the required README and its audit accounting; the reviewed offline fix is now implemented. **README completion subsequently passed; the current guided stop is read-only status below.** Do not resume or restart collection.
 
 Run commands from `/Users/danu/Documents/ChatGPT/Dura-Europos`. Every new output directory must be absent; do not create it beforehand or reuse an earlier attempt.
 
@@ -52,6 +52,8 @@ This is a live read-only Wikidata request. Reservations consume attempt quota be
 Stop and return its report. The one-batch limit is an execution bound, not a completeness criterion. A run with unresolved items or remaining work cannot be reported as a complete collection.
 
 ## Guided status, audit and finalization
+
+Documentation checkpoint 2026-11-07: Danu reported write-readme passed, created true, 2,397 bytes, SHA-256 `71fcfd0428879affafb8f545fb60f609104d6d64adb6b8a71a70c9dee4c27150`. Read-only review confirms identity/scope and unchanged inventory/attempt descriptors, collected phase, generation 25 and all three accepted. Proceed one command at a time from status; the documentation command is recorded below for provenance and should not be repeated as a missing-file repair.
 
 The actual pilot was created before README generation was fixed. First, Danu explicitly adds its missing scope documentation offline:
 
