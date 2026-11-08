@@ -1,6 +1,6 @@
 # Production collector: guided pilot runbook
 
-Reviewed 2026-11-03. **Offline collection-stage reviews are clear for the guided parent-linked pilot.** The full offline suite passed 227 tests, including the historical sample suite. Danu executes operational commands one guided step at a time and returns each report. The assistant runs offline TDD and makes local commits. Full-population collection, scale and archive readiness are not established by this clearance.
+Reviewed 2026-11-03; updated 2026-11-07 after the successful third pilot attempt and documentation fix. **Offline collection-stage reviews are clear for the guided parent-linked pilot.** The current full offline suite passed 238 tests, including the historical sample suite. Danu executes operational commands one guided step at a time and returns each report. The assistant runs offline TDD and makes local commits. Full-population collection, scale and archive readiness are not established by this clearance.
 
 The saved production parent `backup/idea-selection-001` contains the frozen 33,709-QID population. The earlier MVP pilot tested prototype preservation; it did not exercise this production journal, recovery or finalization workflow. Start with a parent-linked three-item production pilot.
 
@@ -9,6 +9,8 @@ Checkpoint 2026-11-03: Danu reported Stop 1 creation and separate saved-selectio
 Subsequent pilot result: Danu executed that one-batch command; it paused with three unresolved items and zero accepted because Wikidata returned API `maxlag` with Retry-After 5. The complete error response is retained as A000001, consuming one attempt per QID. Scope/overall verification is `not_checked`; source-content/provenance/files checks passed. Guided recovery now uses `resume --run backup/idea-pilot-run-001 --max-batches 1` after the persisted cooldown, retaining the same run and quota. Do not rerun `collect` into this directory. This expected transient path is already covered by offline tests; no implementation change is required by the observed evidence.
 
 Second result: Danu's bounded resume also returned maxlag, with the same unfinished counts and passed non-scope checks. A000002 is retained; each QID has now consumed two of three attempts. The recorded ten-second lower bound is `2026-11-03T09:38:41.595270Z`. Recommend waiting a further 15–30 minutes before the final bounded resume. That voluntary wait does not change settings/quota. If the third attempt also fails, retain the run and review the outcome before any further retrieval; do not reset quota or bypass maxlag.
+
+Third result (November 7 New York; saved UTC November 8): all three accepted, none unresolved, all four checks passed. Local review confirms strict item/source equality and retained earlier errors. The run is collected and awaits explicit finalization. Review found that the original implementation omitted the required README and its audit accounting; the reviewed offline fix is now implemented. **Current guided stop: add that missing README using the command below.** Do not resume or restart collection.
 
 Run commands from `/Users/danu/Documents/ChatGPT/Dura-Europos`. Every new output directory must be absent; do not create it beforehand or reuse an earlier attempt.
 
@@ -51,6 +53,14 @@ Stop and return its report. The one-batch limit is an execution bound, not a com
 
 ## Guided status, audit and finalization
 
+The actual pilot was created before README generation was fixed. First, Danu explicitly adds its missing scope documentation offline:
+
+```bash
+python3 -B -m scripts.export_idea_json write-readme --run backup/idea-pilot-run-001
+```
+
+Stop and return the report. Expected status passed, created true and a README descriptor. The writer holds the existing lock, audits accepted/source evidence and adds only the missing README; existing public files and consumed quota stay unchanged. Existing matching documentation is an unchanged created-false result. Different documentation, pending publication or a finalized run is held for review. An interrupted documentation publication retains private staging and requires review; do not delete it to retry. New runs create their scope README automatically. Terminal runs missing valid documentation now fail independent verification, closing the earlier omission.
+
 Use each command only at its guided step, returning its output before proceeding:
 
 ```bash
@@ -58,6 +68,8 @@ python3 -B -m scripts.export_idea_json status --run backup/idea-pilot-run-001
 ```
 
 `status: passed` here means the journal status was read successfully. Inspect its phase, counts and `collection_status`; it is not an independent content-verification result.
+
+For this collected pilot, expect selected/accepted 3, pending/unresolved 0, phase collected and collection_status not_checked until explicit finalization records its report.
 
 ```bash
 python3 -B -m scripts.export_idea_json verify --run backup/idea-pilot-run-001

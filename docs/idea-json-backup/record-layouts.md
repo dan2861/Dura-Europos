@@ -71,6 +71,12 @@ All attempts, including reservations with unknown dispatch/result after crash, r
 
 Durable header receipts restore the most restrictive server wait before dispatch, even without complete body/outcome evidence. Uncertain lost receipt after possible dispatch produces server_wait_unknown and an automatic-retry hold, rather than claiming no server delay. Exact byte/header loss outside durable recording is reported as a limitation.
 
+## README.md
+
+The required UTF-8 run-scope document identifies the immutable run and frozen population using exactly one of each line: `Run ID: <run_id>`, `Run kind: <run_kind>`, `Frozen QIDs: <selected_count>`, and `Frozen QID list SHA-256: <qid_list.sha256>`. It explains complete extracted item JSON versus preserved response-body layers, the collection-period limitation and excluded media/history/recursive retrieval, public records and local-only .state/ recovery. Actual progress/retrieval times remain in the records; documentation alone never claims successful collection, deposit or publication.
+
+Implementation correction reviewed 2026-11-07: new runs create this stable document during initialization. Independent verification accounts for it, checks safe regular UTF-8 text and unique matching identity lines, and rejects terminal runs missing it. Older stopped runs can add a missing document only with the explicit offline write-readme action; existing different text and finalized/pending-publication state require review. No public JSON record keys changed. Finalization includes README in its input fingerprint, and the later external package inventory hashes its final bytes.
+
 ## Verification reports
 
 verification.json keys: `format_version`, `run_id`, `checked_at`, `inputs`, `status`, `checks`, `counts`, `findings`.

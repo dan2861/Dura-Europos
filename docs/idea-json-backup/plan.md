@@ -4,7 +4,7 @@ Drafted: 2026-10-28. **Approved by Danu on 2026-10-28, with MVP-first delivery.*
 Authority: [Spec](design.md), explicitly approved by Danu on 2026-10-28.
 Companion: [record layouts](record-layouts.md), part of this Plan's review.
 
-**Current delivery order:** the [small MVP](mvp.md), guided three-item MVP pilot and saved-evidence review are complete. Guided production discovery and separate verification froze 33,709 QIDs. SQLite recovery, production collection and independent finalization have passed stage/integrated reviews and the full 227-test offline suite. Next is a guided parent-linked production pilot; full collection, synthetic scale, archives and deposit follow later gates. This is a status annotation, not a change to the approved requirements below.
+**Current delivery order (updated 2026-11-07):** the [small MVP](mvp.md), guided three-item MVP pilot and saved-evidence review are complete. Guided production discovery and separate verification froze 33,709 QIDs. The parent-linked production pilot accepted three items on its third attempt after two maxlag refusals. A missed README generation/accounting requirement is now fixed and reviewed offline; the full 238-test suite passes. Next Danu explicitly adds the legacy pilot's missing documentation before separate verification/finalization. Full collection, synthetic scale, archives and deposit follow later gates. This is a status annotation, not a change to the approved requirements below.
 
 ## 1. Outcome and execution boundary
 
