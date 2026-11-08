@@ -8,6 +8,14 @@ from scripts.sample_backup import jsoncodec as codec
 
 
 class ExternalReportTests(unittest.TestCase):
+    def test_root_is_not_a_report_filename_and_never_reaches_audit(self):
+        from scripts.idea_json_backup.external_report import ExternalReport
+        with TemporaryDirectory() as directory:
+            package, downloads = self.inputs(Path(directory))
+            with self.assertRaises(ValueError):
+                with ExternalReport(Path("/"), protected_roots=(package, downloads)):
+                    self.fail("Root directory reached the audit as a report filename")
+
     def test_exact_report_is_published_without_changing_protected_inputs(self):
         from scripts.idea_json_backup.external_report import ExternalReport
         with TemporaryDirectory() as directory:

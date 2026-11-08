@@ -30,6 +30,8 @@ class ExternalReport:
         self._directory = None
 
     def __enter__(self):
+        if self.requested.name in ("", ".", ".."):
+            raise ValueError("External report requires a filename")
         self._stack = ExitStack()
         try:
             self.target = self.requested.parent.resolve(strict=True) / self.requested.name
