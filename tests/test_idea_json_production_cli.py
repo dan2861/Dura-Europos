@@ -2,6 +2,7 @@
 import contextlib
 import io
 import json
+import os
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -20,6 +21,125 @@ def result(*qids):
 
 
 class ProductionCommandTests(unittest.TestCase):
+    def test_deposit_exit_codes_preserve_separate_byte_and_provenance_outcomes(self):
+        for byte_status, deposit_status, expected in (("passed", "passed", 0), ("passed", "not_checked", 2),
+                                                     ("failed", "not_checked", 1), ("passed", "failed", 1)):
+            with self.subTest(byte=byte_status, provenance=deposit_status):
+                report = self.deposit_report(byte_status, deposit_status)
+                with patch("scripts.export_idea_json.verify_deposit", create=True, return_value=report) as checker:
+                    code, actual = self.invoke(["verify-deposit", "--package", "package", "--downloads", "downloads"])
+                self.assertEqual((code, actual), (expected, report))
+                self.assertNotIn("status", actual)
+                checker.assert_called_once_with(Path("package"), Path("downloads"), acquisition=None)
+
+    def test_deposit_receipt_is_exact_and_reports_must_be_external_to_both_inputs(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in ("package", "downloads"):
+                (root / name).mkdir()
+            receipt = {"dataset_url": "https://example.org/dataset", "persistent_id": "doi:00'~01",
+                       "dataset_version": "DRAFT", "downloaded_at": None, "files": [],
+                       "recorded_by": "Invented Operator", "evidence_kind": "operator_recorded"}
+            (root / "acquisition.json").write_text(json.dumps(receipt))
+            report = self.deposit_report("passed", "not_checked")
+            with patch("scripts.export_idea_json.verify_deposit", create=True, return_value=report) as checker:
+                code, actual = self.invoke(["verify-deposit", "--package", str(root / "package"),
+                                            "--downloads", str(root / "downloads"),
+                                            "--acquisition", str(root / "acquisition.json"),
+                                            "--report", str(root / "deposit-verification.json")])
+            self.assertEqual((code, actual), (2, report))
+            self.assertEqual(checker.call_args.kwargs["acquisition"], receipt)
+            self.assertEqual(json.loads((root / "deposit-verification.json").read_bytes()), report)
+            for target in ("package", "downloads"):
+                with patch("scripts.export_idea_json.verify_deposit", create=True) as checker:
+                    code, actual = self.invoke(["verify-deposit", "--package", str(root / "package"),
+                                                "--downloads", str(root / "downloads"),
+                                                "--report", str(root / target / "report.json")])
+                self.assertEqual(code, 1)
+                checker.assert_not_called()
+                self.assertEqual(list((root / target).iterdir()), [])
+
+    def deposit_report(self, byte_status, deposit_status):
+        return {"format_version": "1.0.0", "package_id": "invented", "checked_at": "2026-11-08T12:00:00.000000Z",
+                "acquisition": None, "byte_status": byte_status, "deposit_status": deposit_status,
+                "findings": [], "publication": None}
+
+    def test_deposit_receipt_must_be_external_regular_evidence_before_audit(self):
+        for case in ("inside_package", "inside_downloads", "alias", "fifo"):
+            with self.subTest(case=case), TemporaryDirectory() as directory:
+                base = Path(directory)
+                package, downloads = base / "package", base / "downloads"
+                package.mkdir()
+                downloads.mkdir()
+                if case.startswith("inside"):
+                    receipt = (package if case == "inside_package" else downloads) / "acquisition.json"
+                elif case == "alias":
+                    (base / "alias").symlink_to(downloads, target_is_directory=True)
+                    receipt = base / "alias/acquisition.json"
+                else:
+                    receipt = base / "acquisition.json"
+                    os.mkfifo(receipt)
+                if case != "fifo":
+                    receipt.write_text("{}")
+                forbidden = patch.object(Path, "read_bytes", side_effect=AssertionError("FIFO must not be opened")) if case == "fifo" else contextlib.nullcontext()
+                with forbidden, patch("scripts.export_idea_json.verify_deposit", return_value=self.deposit_report("passed", "passed")) as checker:
+                    code, report = self.invoke(["verify-deposit", "--package", str(package), "--downloads", str(downloads),
+                                                "--acquisition", str(receipt)])
+                self.assertEqual(code, 1)
+                checker.assert_not_called()
+                self.assertEqual(report["status"], "failed")
+
+    def test_saved_deposit_report_cannot_adopt_changed_inputs_or_receipt(self):
+        from scripts.idea_json_backup import external_report
+        for case in ("during_audit", "during_staging", "receipt"):
+            with self.subTest(case=case), TemporaryDirectory() as directory:
+                base = Path(directory)
+                package, downloads = base / "package", base / "downloads"
+                package.mkdir()
+                downloads.mkdir()
+                (package / "baseline").write_bytes(b"original")
+                artifact = downloads / "received"
+                artifact.write_bytes(b"original")
+                receipt = base / "acquisition.json"
+                receipt.write_text("{}")
+                target = base / "deposit-verification.json"
+
+                def checker(*args, **kwargs):
+                    if case == "during_audit":
+                        artifact.write_bytes(b"changed during audit")
+                    elif case == "receipt":
+                        receipt.write_text('{"recorded_by":"changed operator"}')
+                    return self.deposit_report("passed", "passed")
+
+                original = external_report._write
+
+                def stage(*args):
+                    original(*args)
+                    if case == "during_staging":
+                        artifact.write_bytes(b"changed during staging")
+
+                with patch("scripts.export_idea_json.verify_deposit", side_effect=checker), patch.object(
+                        external_report, "_write", side_effect=stage):
+                    code, report = self.invoke(["verify-deposit", "--package", str(package), "--downloads", str(downloads),
+                                                "--acquisition", str(receipt), "--report", str(target)])
+                self.assertEqual(code, 1)
+                self.assertEqual(report["status"], "failed")
+                self.assertFalse(target.exists())
+                self.assertEqual(len(list(base.glob(".deposit-verification.json.*.pending"))),
+                                 1 if case == "during_staging" else 0)
+
+    def test_malformed_receipt_parse_error_never_echoes_supplied_secrets(self):
+        with TemporaryDirectory() as directory:
+            base = Path(directory)
+            receipt = base / "receipt.json"
+            receipt.write_text('{"TOP_SECRET_fixture":1,"TOP_SECRET_fixture":2}')
+            with patch("scripts.export_idea_json.verify_deposit") as checker:
+                code, report = self.invoke(["verify-deposit", "--package", str(base / "package"),
+                                            "--downloads", str(base / "downloads"), "--acquisition", str(receipt)])
+            self.assertEqual(code, 1)
+            self.assertNotIn("TOP_SECRET_fixture", json.dumps(report))
+            checker.assert_not_called()
+
     def test_package_uses_explicit_profile_then_independent_check_and_report(self):
         with TemporaryDirectory() as directory:
             base = Path(directory)

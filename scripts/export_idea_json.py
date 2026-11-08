@@ -1,5 +1,6 @@
 """Explicit operational commands; imports and read-only audits perform no network calls."""
 import argparse
+from contextlib import ExitStack
 import json
 from pathlib import Path
 import re
@@ -21,6 +22,8 @@ from scripts.idea_json_backup.files import write_bytes
 from scripts.idea_json_backup.documentation import write_readme
 from scripts.idea_json_backup.package import package_collection, write_package_report
 from scripts.idea_json_backup.package_verify import verify_package
+from scripts.idea_json_backup.deposit import Directory, verify_deposit
+from scripts.idea_json_backup.external_report import ExternalReport
 from scripts.sample_backup import jsoncodec as codec
 
 
@@ -41,6 +44,52 @@ def _profile(path):
             field = int(field.token)
         converted[key] = field
     return converted
+
+
+def _acquisition(path, *, protected_roots, stack):
+    try:
+        requested = path.absolute()
+        target = requested.parent.resolve(strict=True) / requested.name
+        roots = tuple(root.absolute() for root in protected_roots)
+        anchors = tuple(root.resolve() for root in roots)
+
+        def scope():
+            if (requested.parent.resolve(strict=True) != target.parent
+                    or any(requested.is_relative_to(root) for root in roots)
+                    or any(target.is_relative_to(root) for root in anchors + tuple(root.resolve() for root in roots))):
+                raise ValueError("Acquisition receipt must remain outside package and downloads")
+
+        scope()
+        directory = stack.enter_context(Directory(target.parent))
+        body = directory.body(target.name)
+        receipt = codec.loads(body)
+
+        def unchanged():
+            try:
+                scope()
+                if directory.body(target.name) != body:
+                    raise ValueError("Acquisition receipt changed during verification")
+            except (OSError, ValueError, RuntimeError) as exc:
+                raise ValueError("Acquisition receipt changed or became unsafe") from exc
+
+        return receipt, unchanged
+    except (OSError, ValueError, TypeError, RuntimeError, RecursionError) as exc:
+        raise ValueError("Cannot safely read the external operator acquisition receipt") from exc
+
+
+def _deposit_inputs(roots, stack):
+    """Seal input bytes before an audit that will publish an external report."""
+    try:
+        directories = tuple(stack.enter_context(Directory(root)) for root in roots)
+        before = tuple(directory.fingerprint() for directory in directories)
+    except (OSError, ValueError, RuntimeError):
+        directories, before = (), None
+
+    def unchanged():
+        if before is None or tuple(directory.fingerprint() for directory in directories) != before:
+            raise ValueError("Package or downloaded evidence changed before report publication")
+
+    return unchanged
 
 
 def _status(root):
@@ -89,6 +138,11 @@ def main(argv=None):
     command.add_argument("--profile", required=True, type=Path)
     command = commands.add_parser("verify-package", help="Read-only candidate archive audit in temporary storage")
     command.add_argument("directory", type=Path)
+    command = commands.add_parser("verify-deposit", help="Offline supplied-download comparison; provenance is operator recorded")
+    command.add_argument("--package", required=True, type=Path)
+    command.add_argument("--downloads", required=True, type=Path)
+    command.add_argument("--acquisition", type=Path, help="Operator receipt; without it deposit remains not_checked")
+    command.add_argument("--report", type=Path, help="New report outside package and downloaded-file directories")
     command = commands.add_parser("verify", help="Read-only public audit; --write finalizes a stopped run")
     command.add_argument("--run", required=True, type=Path)
     command.add_argument("--write", action="store_true")
@@ -117,6 +171,22 @@ def main(argv=None):
             write_package_report(output, report, expected_inventory=inventory)
         elif args.command == "verify-package":
             report = verify_package(args.directory)
+        elif args.command == "verify-deposit":
+            with ExitStack() as stack:
+                roots = (args.package, args.downloads)
+                destination = stack.enter_context(ExternalReport(args.report, protected_roots=(
+                    args.package, args.downloads))) if args.report is not None else None
+                inputs_unchanged = _deposit_inputs(roots, stack) if destination is not None else None
+                acquisition, receipt_unchanged = _acquisition(args.acquisition, protected_roots=roots,
+                    stack=stack) if args.acquisition is not None else (None, lambda: None)
+                report = verify_deposit(args.package, args.downloads, acquisition=acquisition)
+                receipt_unchanged()
+                if destination is not None:
+                    def validate():
+                        receipt_unchanged()
+                        if report["byte_status"] == "passed":
+                            inputs_unchanged()
+                    destination.write(report, validate=validate)
         elif args.command == "verify":
             report = finalize(args.run) if args.write else verify_collection(args.run)
             if args.report is not None:
@@ -133,6 +203,10 @@ def main(argv=None):
         else:
             report = verify_selection(args.directory)
         print(codec.dumps(report))
+        if args.command == "verify-deposit":
+            if report["byte_status"] == "failed" or report["deposit_status"] == "failed":
+                return 1
+            return 0 if report["deposit_status"] == "passed" else 2
         return {"passed": 0, "failed": 1, "not_checked": 2}[report["status"]]
     except KeyboardInterrupt:
         print(json.dumps({"status": "not_checked", "findings": ["Interrupted; retain and review saved evidence"]}))

@@ -1,5 +1,7 @@
 """Invented selection, retry/local recovery, finalization and archive roundtrip."""
 import json
+import io
+from contextlib import redirect_stdout
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -12,6 +14,8 @@ from scripts.idea_json_backup.package_verify import verify_package
 from scripts.idea_json_backup.production import collect, resume
 from scripts.idea_json_backup.selection import freeze_fixture_responses
 from scripts.idea_json_backup.state import RunState
+from scripts.sample_backup import jsoncodec as codec
+from scripts.export_idea_json import main
 from test_idea_json_production import Clock, graph, item
 
 
@@ -61,16 +65,47 @@ class ArchiveIntegrationTests(unittest.TestCase):
 
             downloads = base / "invented-downloads"
             downloads.mkdir()
-            for name, body in self.files(output).items():
-                (downloads / name).write_bytes(body)
+            names = ["package-inventory.json"] + [row["path"] for row in inventory["archives"]]
+            for name in names:
+                (downloads / name).write_bytes((output / name).read_bytes())
             self.assertEqual((downloads / "package-inventory.json").read_bytes(),
                              (output / "package-inventory.json").read_bytes())
             self.assertEqual(verify_package(downloads)["status"], "passed")
+            acquired = self.files(downloads)
+            arguments = ["verify-deposit", "--package", str(output), "--downloads", str(downloads)]
+            code, comparison = self.command(arguments)
+            self.assertEqual((code, comparison["byte_status"], comparison["deposit_status"]),
+                             (2, "passed", "not_checked"))
+            receipt = {"dataset_url": "https://example.org/dataset.xhtml?persistentId=doi:10.9999/fixture&version=DRAFT",
+                       "persistent_id": "doi:10.9999/invented'~01", "dataset_version": "DRAFT",
+                       "downloaded_at": comparison["checked_at"], "recorded_by": "Invented operator",
+                       "evidence_kind": "operator_recorded",
+                       "files": [{"remote_file_id": f"{index:04d}", "download_url":
+                                  f"https://example.org/api/access/datafile/{index:04d}?format=original",
+                                  "local_path": name, "downloaded_at": comparison["checked_at"]}
+                                 for index, name in enumerate(names, 7)]}
+            acquisition = base / "acquisition.json"
+            acquisition.write_text(codec.dumps(receipt) + "\n")
+            recorded = base / "deposit-verification.json"
+            code, comparison = self.command(arguments + ["--acquisition", str(acquisition), "--report", str(recorded)])
+            self.assertEqual((code, comparison["byte_status"], comparison["deposit_status"]), (0, "passed", "passed"))
+            self.assertEqual(comparison["acquisition"], receipt)
+            self.assertIsNone(comparison["publication"])
+            self.assertEqual(codec.loads(recorded.read_bytes()), comparison)
+            self.assertEqual(acquired, self.files(downloads))
             part = downloads / inventory["archives"][0]["path"]
             damaged = part.read_bytes()[:-4]
             part.write_bytes(damaged)
             self.assertEqual(verify_package(downloads)["status"], "failed")
+            code, comparison = self.command(arguments + ["--acquisition", str(acquisition)])
+            self.assertEqual((code, comparison["byte_status"], comparison["deposit_status"]), (1, "failed", "failed"))
             self.assertEqual(part.read_bytes(), damaged)
+
+    def command(self, arguments):
+        stream = io.StringIO()
+        with redirect_stdout(stream):
+            code = main(arguments)
+        return code, codec.loads(stream.getvalue())
 
     def files(self, root, *, exclude_state=False):
         return {path.relative_to(root).as_posix(): path.read_bytes() for path in root.rglob("*")
