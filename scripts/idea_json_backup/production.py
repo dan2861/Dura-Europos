@@ -189,7 +189,9 @@ def _complete_source(store, attempt):
 
 
 def _audit_public_ownership(store):
-    expected = {"manifest.json", "inventory.jsonl", "attempts.jsonl"}
+    from .documentation import check_readme
+    check_readme(store)
+    expected = {"manifest.json", "inventory.jsonl", "attempts.jsonl", "README.md"}
     if store.manifest["verification_path"]:
         expected.add(store.manifest["verification_path"])
     for path in (store.root / "selection").rglob("*"):

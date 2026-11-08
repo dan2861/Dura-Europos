@@ -60,3 +60,11 @@ Final discovery milestone review is clear after the known-failure precedence fix
 Separate storage/extraction, retry/recovery and independent-verification/finalization reviews are clear after the recorded fixes. A separate final integrated stage review exercised an invented production-parent → pilot subset → collection → audit → finalization → immutable re-audit; no remaining blocker was found for the guided three-item pilot workflow. Final root validation: `python3 -B -m unittest discover -s tests -v` passed **227 tests** (176 IDEA JSON and 51 historical sample) in 15.337 seconds.
 
 Read-only preflight confirmed the three declared pilot QIDs belong to the saved 33,709-item parent and the proposed pilot selection/run directories are absent. No actual selection mutation, production item retrieval or operational command ran during implementation. Next is Danu’s guided Stop 1 in [collection-runbook.md](collection-runbook.md), followed by separate selection verification. Scale, archives and deposit remain later milestones; no full-collection readiness is claimed. See [local review record](../../review/idea-json-backup-production-collection-review-2026-11-03.md).
+
+## 2026-11-07: pilot success and pre-finalization documentation fix
+
+Danu’s third guided attempt accepted all three items and the existing audit reported passed; direct saved-source review agrees on entities, provenance and retained earlier error evidence. That review also found the approved scope README was never generated or checked, so finalization is held until explicit guided documentation completion. No actual run file was changed during implementation.
+
+| Increment | RED observed | GREEN evidence |
+| --- | --- | --- |
+| Required run-scope documentation | New run lacked README; explicit legacy helper absent; independent audit passed a terminal missing README and rejected declared documentation as unaccounted | Five documentation and 21 independent verifier tests pass. New runs create immutable scope documentation; stopped legacy runs have an explicit no-overwrite completion helper; independent identity/count/list-hash checks account for README. Failed publication retains owned staging and holds for review. Two old fixture assumptions were updated for the initial README publication. |

@@ -84,6 +84,7 @@ class StateTests(unittest.TestCase):
             outside = Path(directory) / "outside"
             outside.mkdir()
             with RunState.create(selection, root) as store:
+                (root / ".state/staging").rmdir()  # initial README publication left an empty owned directory
                 (root / ".state/staging").symlink_to(outside, target_is_directory=True)
                 with self.assertRaises(ValueError):
                     store.publish("responses/A000001.body", b"preserved")
@@ -184,7 +185,7 @@ class StateTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             selection, root = self.fixture(directory)
             with RunState.create(selection, root) as store:
-                file = store.publish("README.md", b"scope")
+                file = store.publish("notes.txt", b"scope")
                 body = store.publish("diagnostics/unowned.body", b"partial", complete=None)
                 self.assertNotIn("complete", file)
                 self.assertIn("complete", body)

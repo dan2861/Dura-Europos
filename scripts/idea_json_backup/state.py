@@ -152,6 +152,8 @@ class RunState:
                         "source_entity_key": None, "attempt_ids": [], "membership_at_retrieval": "not_checked",
                         "next_eligible_at": None, "error": None})) for ordinal, qid in enumerate(qids)])
             _sync(obj.root / ".state")
+            from .documentation import readme_bytes
+            obj.publish("README.md", readme_bytes(obj.manifest))
             obj.snapshot()
             return obj
         except BaseException:
@@ -169,6 +171,8 @@ class RunState:
             obj._audit_journal()
             obj._audit_selection()
             obj._audit_accepted()
+            from .documentation import check_readme
+            check_readme(obj, missing_ok=True)  # older runs require explicit documentation completion
             return obj
         except (sqlite3.Error, OSError, ValueError, KeyError) as exc:
             obj.close()

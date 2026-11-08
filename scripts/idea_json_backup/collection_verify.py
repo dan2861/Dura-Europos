@@ -161,6 +161,29 @@ class Audit:
         _require(not body or body.endswith(b"\n"), "JSONL lacks final newline")
         return [loads(line) for line in body.splitlines()]
 
+    def documentation(self, manifest):
+        name = "README.md"
+        candidate = self.root / name
+        if not candidate.exists() and not candidate.is_symlink():
+            _require(not self.terminal, "Required run README.md is missing", "files",
+                     code="missing_readme", path=name)
+            self.unfinished = True
+            return
+        try:
+            text = self.path(name).read_bytes().decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise Invalid("files", "invalid_readme", "README.md is not UTF-8 text", path=name) from exc
+        _require(text.strip(), "README.md is empty", "files", code="invalid_readme", path=name)
+        fields = {"Run ID": manifest["run_id"], "Run kind": manifest["run_kind"],
+                  "Frozen QIDs": manifest["selection"]["selected_count"].token,
+                  "Frozen QID list SHA-256": manifest["selection"]["qid_list"]["sha256"]}
+        lines = text.splitlines()
+        for field, expected in fields.items():
+            declared = [line for line in lines if line.startswith(field + ":")]
+            _require(declared == [field + ": " + expected], "README.md identity differs from the frozen run",
+                     "files", code="invalid_readme", path=name)
+        self.accounted[name] = "documentation"
+
     def settings(self, value):
         expected = {"endpoint": "https://www.wikidata.org/w/api.php", "action_parameters": PARAMETERS,
                     "headers": value.get("headers") if isinstance(value, dict) else None,
@@ -488,6 +511,7 @@ class Audit:
         if attempts:
             dispatches = [a["dispatch_started_at"] for a in attempts if a["dispatch_started_at"] is not None]
             _require(not dispatches or manifest["started_at"] == dispatches[0], "Run start differs from first dispatch", "provenance")
+        self.documentation(manifest)
         if manifest["verification_path"] is not None:
             _require(manifest["verification_path"] == "verification.json", "Unexpected verification path")
             self.path("verification.json")

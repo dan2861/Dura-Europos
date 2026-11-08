@@ -79,6 +79,20 @@ def fixture(root):
                 "counts": {"selected": 1, "accepted": 1, "pending": 0, "unresolved": 0},
                 "collection_status": "not_checked", "verification_path": None,
                 "limitations": ["Collection period; no media, full history or recursive linked-entity retrieval"]}
+    # Declared independently: the verifier fixture never calls documentation generation.
+    store(root, "README.md", (
+        "# Invented preservation run\n\n"
+        "Run ID: 20261103T120000.000000Z-invented\n"
+        "Run kind: synthetic\n"
+        "Frozen QIDs: 1\n"
+        "Frozen QID list SHA-256: " + selection["qid_list"]["sha256"] + "\n\n"
+        "Items are extracted item JSON; responses retain preserved response-body bytes.\n"
+        "A collection period is not one historical instant. Scope excludes media bytes,\n"
+        "full revision history and recursive linked entities. Consult manifest.json,\n"
+        "inventory.jsonl, attempts.jsonl and verification.json for actual outcomes.\n"
+        ".state/ is private local recovery evidence; retain it locally, never deposit it.\n"
+        "Keep the frozen selection, accepted revisions and consumed retry quota on recovery.\n"
+    ).encode())
     rewrite(root, manifest, inventory, [attempt])
     return manifest, inventory, [attempt]
 
@@ -122,6 +136,79 @@ def with_retry(root, *, dispatch=8, status=503, retry_after=None, api_error=None
 
 
 class CollectionVerifierTests(unittest.TestCase):
+    def test_declared_readme_is_accounted_without_mutation(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / "run"
+            fixture(root)
+            before = {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+            self.assertEqual(verify_collection(root)["status"], "passed")
+            after = {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+            self.assertEqual(before, after)
+
+    def test_terminal_missing_readme_prevents_a_passing_collection(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / "run"
+            fixture(root)
+            (root / "README.md").unlink()
+            report = verify_collection(root)
+            self.assertEqual(report["status"], "failed")
+            self.assertEqual(report["findings"][0]["code"], "missing_readme")
+            self.assertEqual(report["findings"][0]["path"], "README.md")
+
+    def test_active_legacy_missing_readme_is_unfinished_without_mutation(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / "run"
+            manifest, inventory, attempts = fixture(root)
+            manifest.update(phase="paused", finished_at=None)
+            rewrite(root, manifest, inventory, attempts)
+            (root / "README.md").unlink()
+            self.assertEqual(verify_collection(root)["status"], "not_checked")
+            self.assertFalse((root / "README.md").exists())
+
+    def test_invalid_readme_identity_or_text_cannot_pass(self):
+        for corruption in ("run_id", "kind", "count", "list_hash", "duplicate_identity", "empty", "utf8"):
+            with self.subTest(corruption=corruption), TemporaryDirectory() as directory:
+                root = Path(directory) / "run"
+                fixture(root)
+                path = root / "README.md"
+                body = path.read_bytes()
+                if corruption == "run_id":
+                    body = body.replace(b"20261103T120000.000000Z-invented", b"20261103T120000.000000Z-another")
+                elif corruption == "kind":
+                    body = body.replace(b"Run kind: synthetic", b"Run kind: production")
+                elif corruption == "count":
+                    body = body.replace(b"Frozen QIDs: 1", b"Frozen QIDs: 33709")
+                elif corruption == "list_hash":
+                    body = body.replace(hashlib.sha256(b"Q1\n").hexdigest().encode(), b"0" * 64)
+                elif corruption == "duplicate_identity":
+                    body += b"Run kind: production\n"
+                elif corruption == "empty":
+                    body = b"\n  \n"
+                else:
+                    body = b"\xff\xfe"
+                path.write_bytes(body)
+                report = verify_collection(root)
+                self.assertEqual(report["status"], "failed")
+                self.assertEqual(report["findings"][0]["code"], "invalid_readme")
+                self.assertEqual(report["findings"][0]["path"], "README.md")
+
+    def test_linked_readme_cannot_be_treated_as_public_documentation(self):
+        for link in ("symlink", "hardlink"):
+            with self.subTest(link=link), TemporaryDirectory() as directory:
+                root = Path(directory) / "run"
+                fixture(root)
+                path = root / "README.md"
+                outside = Path(directory) / "outside.md"
+                outside.write_bytes(path.read_bytes())
+                path.unlink()
+                if link == "symlink":
+                    path.symlink_to(outside)
+                else:
+                    path.hardlink_to(outside)
+                report = verify_collection(root)
+                self.assertEqual(report["status"], "failed")
+                self.assertEqual(report["findings"][0]["path"], "README.md")
+
     def test_nonretryable_item_hold_cannot_be_silently_requested_again(self):
         with TemporaryDirectory() as directory:
             root = Path(directory) / "run"
