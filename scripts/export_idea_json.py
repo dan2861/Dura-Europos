@@ -17,6 +17,7 @@ from scripts.idea_json_backup.production import collect, resume
 from scripts.idea_json_backup.collection_verify import verify_collection
 from scripts.idea_json_backup.finalize import finalize
 from scripts.idea_json_backup.files import write_bytes
+from scripts.idea_json_backup.documentation import write_readme
 from scripts.sample_backup import jsoncodec as codec
 
 
@@ -63,6 +64,8 @@ def main(argv=None):
     command.add_argument("--max-batches", type=int)
     command = commands.add_parser("status", help="Read-only authoritative journal status")
     command.add_argument("--run", required=True, type=Path)
+    command = commands.add_parser("write-readme", help="Offline: add missing scope documentation to a stopped unfinalized run")
+    command.add_argument("--run", required=True, type=Path)
     command = commands.add_parser("verify", help="Read-only public audit; --write finalizes a stopped run")
     command.add_argument("--run", required=True, type=Path)
     command.add_argument("--write", action="store_true")
@@ -79,6 +82,8 @@ def main(argv=None):
             report = verify_collection(args.run)
         elif args.command == "status":
             report = _status(args.run)
+        elif args.command == "write-readme":
+            report = write_readme(args.run)
         elif args.command == "verify":
             report = finalize(args.run) if args.write else verify_collection(args.run)
             if args.report is not None:

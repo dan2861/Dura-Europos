@@ -20,6 +20,14 @@ def result(*qids):
 
 
 class ProductionCommandTests(unittest.TestCase):
+    def test_write_readme_is_an_explicit_offline_handler(self):
+        report = {"status": "passed", "findings": [], "created": True}
+        with patch("scripts.export_idea_json.write_readme", create=True, return_value=report) as writer, patch(
+                "scripts.export_idea_json.resume", side_effect=AssertionError("no retrieval")):
+            code, actual = self.invoke(["write-readme", "--run", "run"])
+        self.assertEqual((code, actual), (0, report))
+        writer.assert_called_once_with(Path("run"))
+
     def test_status_reads_journal_without_mutating_payload_or_fetching(self):
         with TemporaryDirectory() as directory:
             base = Path(directory)
