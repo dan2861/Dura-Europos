@@ -83,6 +83,28 @@ def fixture(base):
 
 
 class PackageVerifierTests(unittest.TestCase):
+    def test_linked_or_looped_package_root_returns_a_structured_failure(self):
+        from scripts.idea_json_backup.package_verify import verify_package
+        for kind in ("link", "loop"):
+            with self.subTest(kind=kind), TemporaryDirectory() as directory:
+                base = Path(directory)
+                package, _ = fixture(base)
+                alias = base / "alias"
+                alias.symlink_to(package if kind == "link" else alias, target_is_directory=True)
+                report = verify_package(alias)
+                self.assertEqual(report["status"], "failed")
+                self.assertEqual(report["checks"][0]["status"], "failed")
+                self.assertTrue(report["findings"])
+
+    def test_candidate_profile_cannot_raise_approved_test_ceilings(self):
+        from scripts.idea_json_backup.package_verify import verify_package
+        for field, value in (("max_members", 5001), ("max_payload_bytes_per_part", 268435457)):
+            with self.subTest(field=field), TemporaryDirectory() as directory:
+                package, inventory = fixture(Path(directory))
+                inventory["profile"][field] = value
+                write_inventory(package, inventory)
+                self.assertEqual(verify_package(package)["status"], "failed")
+
     def test_malformed_inventory_produces_a_typed_inventory_finding(self):
         from scripts.idea_json_backup.package_verify import verify_package
         for bad in ("path_type", "json"):

@@ -98,7 +98,7 @@ def pax_path(body):
 class Audit:
     def __init__(self, directory):
         self.root = Path(directory)
-        self.anchor = self.root.resolve()
+        self.anchor = None
         self.current_check = "inventory"
         self.report = {"format_version": "1.0.0", "package_id": None,
                        "checked_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
@@ -219,6 +219,8 @@ class Audit:
         return result
 
     def verify(self):
+        require(self.root.is_dir() and not self.root.is_symlink(), "Unsafe package directory")
+        self.anchor = self.root.resolve()
         body = self.path("package-inventory.json").read_bytes()
         expected_files = {"package-inventory.json": (len(body), sha256(body).hexdigest())}
         inventory = loads(body)
@@ -239,6 +241,8 @@ class Audit:
                 and profile["retention_evidence"] is None, "Unsupported candidate archive profile")
         limits = {"members": integer(profile["max_members"], positive=True),
                   "bytes": integer(profile["max_payload_bytes_per_part"], positive=True)}
+        require(limits["members"] <= 5000 and limits["bytes"] <= 268435456,
+                "Candidate profile exceeds approved test ceilings")
         require(isinstance(inventory["payload"], list) and inventory["payload"]
                 and isinstance(inventory["archives"], list) and inventory["archives"], "Empty or invalid package inventory")
         payload, archives = {}, {}
@@ -301,7 +305,7 @@ def verify_package(directory):
     audit = Audit(directory)
     try:
         return audit.verify()
-    except (OSError, ValueError, TypeError, KeyError, RecursionError, ArithmeticError, tarfile.TarError, EOFError, zlib.error) as exc:
+    except (OSError, ValueError, TypeError, KeyError, RuntimeError, ArithmeticError, tarfile.TarError, EOFError, zlib.error) as exc:
         category = exc.check if isinstance(exc, Invalid) else audit.current_check
         finding = {"code": "invalid_package", "qid": None, "path": exc.path if isinstance(exc, Invalid) else None,
                    "message": str(exc)}
