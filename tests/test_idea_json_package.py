@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import shutil
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import tarfile
@@ -13,6 +14,155 @@ from test_idea_json_finalize import fixture
 
 
 class PackageTests(unittest.TestCase):
+    def test_failed_report_retains_damaged_missing_or_unsafe_archive_evidence(self):
+        from scripts.idea_json_backup.package import package_collection, write_package_report
+        for damage in ("changed", "missing", "symlink"):
+            with self.subTest(damage=damage), TemporaryDirectory() as directory:
+                root = fixture(directory)
+                self.assertEqual(finalize(root)["status"], "passed")
+                output = (Path(directory) / "package").resolve()
+                inventory = package_collection(root, output)
+                part = output / inventory["archives"][0]["path"]
+                if damage == "changed":
+                    part.write_bytes(b"Invented damaged archive evidence")
+                else:
+                    part.unlink()
+                    if damage == "symlink":
+                        outside = Path(directory) / "outside"
+                        outside.write_bytes(b"External bytes must remain untouched")
+                        part.symlink_to(outside)
+                report = self.report(inventory)
+                issue = {"code": "invented_failure", "qid": None, "path": part.name, "message": "Invented archive failure"}
+                report.update(status="failed", findings=[issue])
+                report["checks"][1].update(status="failed", findings=[issue])
+                report["checks"][2]["status"] = "not_checked"
+                metadata = (output / "package-inventory.json").read_bytes()
+                write_package_report(output, report, expected_inventory=inventory)
+                self.assertEqual(json.loads((output / "package-verification.json").read_bytes()), report)
+                self.assertEqual((output / "package-inventory.json").read_bytes(), metadata)
+                if damage == "changed":
+                    self.assertEqual(part.read_bytes(), b"Invented damaged archive evidence")
+                elif damage == "missing":
+                    self.assertFalse(part.exists())
+                else:
+                    self.assertTrue(part.is_symlink())
+                    self.assertEqual(outside.read_bytes(), b"External bytes must remain untouched")
+
+    def test_report_identity_inventory_changes_and_existing_report_hold_without_overwrite(self):
+        from scripts.idea_json_backup.package import package_collection, write_package_report
+        with TemporaryDirectory() as directory:
+            root = fixture(directory)
+            self.assertEqual(finalize(root)["status"], "passed")
+            output = (Path(directory) / "package").resolve()
+            inventory = package_collection(root, output)
+            before = {p.name: p.read_bytes() for p in output.iterdir()}
+            report = self.report(inventory)
+            with self.assertRaises(ValueError):
+                write_package_report(output, dict(report, package_id="another-package"), expected_inventory=inventory)
+            with self.assertRaises(ValueError):
+                write_package_report(output, dict(report, extra="not in the approved schema"), expected_inventory=inventory)
+            self.assertEqual(before, {p.name: p.read_bytes() for p in output.iterdir()})
+            inventory_path = output / "package-inventory.json"
+            inventory_path.write_bytes(before["package-inventory.json"] + b" ")
+            with self.assertRaisesRegex(ValueError, "inventory changed"):
+                write_package_report(output, report, expected_inventory=inventory)
+            self.assertFalse((output / "package-verification.json").exists())
+            inventory_path.write_bytes(before["package-inventory.json"])
+            write_package_report(output, report, expected_inventory=inventory)
+            with self.assertRaises(FileExistsError):
+                write_package_report(output, report, expected_inventory=inventory)
+            self.assertEqual(json.loads((output / "package-verification.json").read_bytes()), report)
+
+    def test_report_input_change_during_staging_holds_before_passing_publication(self):
+        from scripts.idea_json_backup import package
+        with TemporaryDirectory() as directory:
+            root = fixture(directory)
+            self.assertEqual(finalize(root)["status"], "passed")
+            output = (Path(directory) / "package").resolve()
+            inventory = package.package_collection(root, output)
+            part = output / inventory["archives"][0]["path"]
+            original = package._write
+
+            def damage_after_stage(destination, name, body):
+                original(destination, name, body)
+                if name == "package-verification.pending.json":
+                    part.write_bytes(b"Invented later change")
+
+            with patch.object(package, "_write", side_effect=damage_after_stage):
+                with self.assertRaisesRegex(ValueError, "Archive changed"):
+                    package.write_package_report(output, self.report(inventory), expected_inventory=inventory)
+            self.assertFalse((output / "package-verification.json").exists())
+            self.assertTrue((output / "package-verification.pending.json").exists())
+
+    def test_report_directory_and_parent_swaps_never_redirect_writes(self):
+        from scripts.idea_json_backup import package
+        for timing in ("parent_before_attach", "directory_after_stage"):
+            with self.subTest(timing=timing), TemporaryDirectory() as directory:
+                root = fixture(directory)
+                self.assertEqual(finalize(root)["status"], "passed")
+                area = (Path(directory) / "packages").resolve()
+                area.mkdir()
+                output = area / "package"
+                inventory = package.package_collection(root, output)
+                outside = (Path(directory) / "outside").resolve()
+                outside.mkdir()
+                if timing == "parent_before_attach":
+                    shutil.copytree(output, outside / "package")
+                    before = {p.relative_to(outside).as_posix(): p.read_bytes()
+                              for p in outside.rglob("*") if p.is_file()}
+                    area.rename(Path(directory) / "owned-parent")
+                    area.symlink_to(outside, target_is_directory=True)
+                    with self.assertRaises((OSError, ValueError)):
+                        package.write_package_report(output, self.report(inventory), expected_inventory=inventory)
+                    self.assertEqual(before, {p.relative_to(outside).as_posix(): p.read_bytes()
+                                              for p in outside.rglob("*") if p.is_file()})
+                else:
+                    original = package._write
+
+                    def redirect_after_stage(destination, name, body):
+                        original(destination, name, body)
+                        if name == "package-verification.pending.json":
+                            output.rename(area / "owned-package")
+                            output.symlink_to(outside, target_is_directory=True)
+
+                    with patch.object(package, "_write", side_effect=redirect_after_stage):
+                        with self.assertRaises(ValueError):
+                            package.write_package_report(output, self.report(inventory), expected_inventory=inventory)
+                    self.assertEqual(list(outside.iterdir()), [])
+
+    def test_report_publication_binds_exact_package_and_preserves_inputs(self):
+        from scripts.idea_json_backup.package import package_collection, write_package_report
+        with TemporaryDirectory() as directory:
+            root = fixture(directory)
+            self.assertEqual(finalize(root)["status"], "passed")
+            output = (Path(directory) / "package").resolve()
+            inventory = package_collection(root, output)
+            before = {p.name: p.read_bytes() for p in output.iterdir()}
+            report = self.report(inventory)
+            descriptor = write_package_report(output, report, expected_inventory=inventory)
+            self.assertEqual(descriptor["path"], "package-verification.json")
+            self.assertEqual(json.loads((output / descriptor["path"]).read_bytes()), report)
+            after = {p.name: p.read_bytes() for p in output.iterdir()}
+            self.assertEqual(before, {name: body for name, body in after.items()
+                                      if name != "package-verification.json"})
+
+    def test_inaccessible_public_subtree_cannot_be_silently_omitted(self):
+        from scripts.idea_json_backup import package
+        with TemporaryDirectory() as directory:
+            root = fixture(directory)
+            self.assertEqual(finalize(root)["status"], "passed")
+            output = Path(directory) / "package"
+
+            def unreadable_tree(*args, **kwargs):
+                if "onerror" in kwargs:
+                    kwargs["onerror"](PermissionError("Invented public subtree read failure"))
+                return iter(())
+
+            with patch.object(package.os, "walk", side_effect=unreadable_tree):
+                with self.assertRaises(PermissionError):
+                    package.package_collection(root, output)
+            self.assertFalse(output.exists())
+
     def test_splits_at_either_bound_and_archives_have_stable_normalized_headers(self):
         from scripts.idea_json_backup.package import DEFAULT_PROFILE, package_collection
         with TemporaryDirectory() as directory:
@@ -154,7 +304,9 @@ class PackageTests(unittest.TestCase):
             self.assertEqual(finalize(root)["status"], "passed")
             for index, changed in enumerate(({"gzip_level": 5}, {"gzip_mtime": 1},
                                              {"retention_evidence": {"claimed": "Yale"}},
-                                             {"max_members": True}, {"max_payload_bytes_per_part": 0})):
+                                             {"max_members": True}, {"max_payload_bytes_per_part": 0},
+                                             {"max_members": 5001},
+                                             {"max_payload_bytes_per_part": 268435457})):
                 with self.subTest(changed=changed):
                     output = Path(directory) / f"package-{index}"
                     with self.assertRaises(ValueError):
@@ -250,6 +402,13 @@ class PackageTests(unittest.TestCase):
                     now_fn=clock.utc, monotonic=clock.monotonic)
             self.assertEqual(finalize(root)["status"], "passed")
         return root
+
+    def report(self, inventory):
+        return {"format_version": "1.0.0", "package_id": inventory["package_id"],
+                "checked_at": "2026-11-08T04:00:00.000000Z", "status": "passed",
+                "checks": [{"check_id": name, "status": "passed", "findings": []}
+                           for name in ("inventory", "archive_integrity", "payload_roundtrip")],
+                "findings": []}
 
 
 if __name__ == "__main__":

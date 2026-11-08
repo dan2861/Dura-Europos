@@ -4,6 +4,7 @@ import hashlib
 from contextlib import ExitStack
 import os
 from pathlib import Path
+import re
 import stat
 import tarfile
 import uuid
@@ -11,6 +12,7 @@ import uuid
 from scripts.sample_backup import jsoncodec as codec
 
 from .collection_verify import verify_collection
+from .contract import valid_utc
 from .state import RunState, utc_now
 
 TAR_HEADER_POLICY = "uid=0,gid=0,uname=,gname=,mode=0644,mtime=0"
@@ -25,7 +27,7 @@ def _profile(value):
         raise ValueError("Archive profile must be an object")
     profile = dict(DEFAULT_PROFILE if value is None else value)
     if (set(profile) != set(DEFAULT_PROFILE) or profile["format"] != "tar.gz"
-            or any(type(profile[key]) is not int or profile[key] < 1
+            or any(type(profile[key]) is not int or not 1 <= profile[key] <= DEFAULT_PROFILE[key]
                    for key in ("max_members", "max_payload_bytes_per_part"))
             or type(profile["gzip_level"]) is not int or profile["gzip_level"] != 6
             or type(profile["gzip_mtime"]) is not int or profile["gzip_mtime"] != 0
@@ -60,8 +62,11 @@ def _hash(path, name):
 
 
 def _payload(store):
+    def unreadable(error):
+        raise error
+
     values = []
-    for directory, folders, files in os.walk(store.root):
+    for directory, folders, files in os.walk(store.root, onerror=unreadable):
         base = Path(directory)
         if base == store.root:
             folders[:] = [name for name in folders if name != ".state"]
@@ -295,3 +300,103 @@ def package_collection(run_dir, output_dir, *, profile=None):
             _publish(destination, complete, "package-inventory.json")
             destination.unlink(prepared)
         return inventory
+
+
+def _report_contract(report, package_id):
+    keys = {"format_version", "package_id", "checked_at", "status", "checks", "findings"}
+    statuses = ("passed", "failed", "not_checked")
+    if (not isinstance(report, dict) or set(report) != keys or report["format_version"] != "1.0.0"
+            or report["package_id"] != package_id or not valid_utc(report["checked_at"])
+            or report["status"] not in statuses or not isinstance(report["checks"], list)
+            or len(report["checks"]) != 3 or not isinstance(report["findings"], list)):
+        raise ValueError("Invalid package verification report identity/schema")
+    findings = list(report["findings"])
+    for label, check in zip(("inventory", "archive_integrity", "payload_roundtrip"), report["checks"]):
+        if (not isinstance(check, dict) or set(check) != {"check_id", "status", "findings"}
+                or check["check_id"] != label or check["status"] not in statuses
+                or not isinstance(check["findings"], list)):
+            raise ValueError("Invalid package verification check")
+        findings.extend(check["findings"])
+    for finding in findings:
+        if (not isinstance(finding, dict) or set(finding) != {"code", "qid", "path", "message"}
+                or not all(isinstance(finding[key], str) and finding[key] for key in ("code", "message"))
+                or any(finding[key] is not None and not isinstance(finding[key], str) for key in ("qid", "path"))):
+            raise ValueError("Invalid package verification finding")
+    if report["status"] == "passed" and (findings or any(c["status"] != "passed" for c in report["checks"])):
+        raise ValueError("Passed package report contains failed or unfinished evidence")
+
+
+def _report_inputs(output, inventory, inventory_body, *, failed, ignored=()):
+    actual = _output_hash(output, "package-inventory.json")
+    expected = {"path": "package-inventory.json", "size_bytes": len(inventory_body),
+                "sha256": hashlib.sha256(inventory_body).hexdigest()}
+    if actual != expected:
+        raise ValueError("Package inventory changed before verification publication")
+    seen, archives = set(), []
+    for part in inventory["archives"]:
+        if (not isinstance(part, dict) or set(part) != {"path", "size_bytes", "sha256", "members"}
+                or not isinstance(part["path"], str) or not re.fullmatch(r"part-[0-9]{5,}\.tar\.gz", part["path"])
+                or part["path"] in seen or type(part["size_bytes"]) is not int or part["size_bytes"] < 0
+                or not isinstance(part["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", part["sha256"])):
+            raise ValueError("Invalid expected archive descriptor")
+        name = part["path"]
+        seen.add(name)
+        try:
+            info = os.stat(name, dir_fd=output.fd, follow_symlinks=False)
+        except FileNotFoundError:
+            if not failed:
+                raise ValueError("Expected archive is missing before passing report")
+            archives.append({"path": name, "missing": True})
+            continue
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            if not failed:
+                raise ValueError("Unsafe archive cannot support a passing report")
+            archives.append({"path": name, "unsafe": (info.st_dev, info.st_ino, info.st_mode, info.st_nlink,
+                                                        info.st_size, info.st_mtime_ns, info.st_ctime_ns)})
+            continue  # retain failure evidence without following or reading unsafe objects
+        current = _output_hash(output, name)
+        if not failed and current != {key: part[key] for key in ("path", "size_bytes", "sha256")}:
+            raise ValueError("Archive changed before passing verification publication")
+        archives.append(current)
+    files = set(os.listdir(output.fd)) - set(ignored)
+    if not failed and files != {"package-inventory.json"} | seen:
+        raise ValueError("Unexpected package artifacts prevent a passing report")
+    output.check()
+    return {"inventory": actual, "archives": archives, "files": sorted(files)}
+
+
+def write_package_report(package_dir, report, *, expected_inventory):
+    """Publish one report against the producer's exact inventory and stable inputs.
+
+    The caller captures a canonical absolute output path before packaging/auditing.
+    This function never resolves a newly linked ancestry to another destination.
+    Failed reports retain genuine missing/unsafe/damaged archive facts; they confer
+    no successful verification and never rewrite inventory or archive bytes.
+    """
+    inventory_keys = {"format", "format_version", "package_id", "run_id", "run_kind", "created_at",
+                      "profile", "payload", "archives"}
+    if (not isinstance(expected_inventory, dict) or set(expected_inventory) != inventory_keys
+            or not isinstance(expected_inventory["package_id"], str) or not expected_inventory["package_id"]
+            or not isinstance(expected_inventory["archives"], list)):
+        raise ValueError("Expected complete producer inventory is required")
+    _report_contract(report, expected_inventory["package_id"])
+    output = Path(package_dir).absolute()
+    inventory_body = (codec.dumps(expected_inventory) + "\n").encode("utf-8")
+    report_body = (codec.dumps(report) + "\n").encode("utf-8")
+    report_file, pending = "package-verification.json", "package-verification.pending.json"
+    with _Parent(output.parent) as parent, _Output(output, output, parent, create=False) as destination:
+        if report_file in os.listdir(destination.fd) or pending in os.listdir(destination.fd):
+            raise FileExistsError("Package report or publication evidence already exists")
+        options = {"failed": report["status"] != "passed"}
+        fingerprint = _report_inputs(destination, expected_inventory, inventory_body, **options)
+        _write(destination, pending, report_body)
+        if _report_inputs(destination, expected_inventory, inventory_body, ignored=(pending,), **options) != fingerprint:
+            raise ValueError("Package inputs changed during report preparation")
+        _publish(destination, pending, report_file)
+        if _report_inputs(destination, expected_inventory, inventory_body, ignored=(report_file,), **options) != fingerprint:
+            raise ValueError("Package inputs changed during report publication; retain evidence for review")
+        descriptor = _output_hash(destination, report_file)
+        if descriptor != {"path": report_file, "size_bytes": len(report_body),
+                          "sha256": hashlib.sha256(report_body).hexdigest()}:
+            raise ValueError("Published package report bytes changed")
+        return descriptor
