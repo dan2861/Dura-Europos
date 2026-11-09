@@ -65,6 +65,8 @@ def _hash(path, name):
 
 
 def _payload(store):
+    if hasattr(store, "snapshot") and not isinstance(store, RunState):
+        return sorted(store.snapshot().values(), key=lambda value: value["path"])
     def unreadable(error):
         raise error
 
@@ -239,7 +241,7 @@ def _archive(store, output, name, members, profile):
                     info.uid = info.gid = info.mtime = 0
                     info.uname = info.gname = ""
                     info.mode = 0o644
-                    with _open_regular(store.path(member["path"])) as stream:
+                    with (store.open_read(member["path"]) if hasattr(store, "open_read") else _open_regular(store.path(member["path"]))) as stream:
                         reader = _HashReader(stream, member)
                         archive.addfile(info, reader)
                         reader.finish()
@@ -250,17 +252,8 @@ def _archive(store, output, name, members, profile):
     return dict(_output_hash(output, name), members=[row["path"] for row in members])
 
 
-def package_collection(run_dir, output_dir, *, profile=None):
-    """Create a new candidate package; no retrieval, payload mutation or deposit."""
-    profile = _profile(profile)
-    output = Path(output_dir).absolute()
-    with RunState.open(run_dir) as store, ExitStack() as stack:
-        manifest = store.manifest
-        if (manifest["phase"] != "finalized" or manifest["collection_status"] != "passed"
-                or store.get_internal("finalization") is not None or store.internal_items("payload:")):
-            raise ValueError("Packaging requires finalized verified collection with no pending publications")
-        if not codec.equal(codec.loads(store.path("manifest.json").read_bytes()), manifest):
-            raise ValueError("Public finalized manifest differs from its journal")
+def _build_package(store, output, profile, manifest, audit, *, payload_kind=None):
+    with ExitStack() as stack:
         parent = output.parent.resolve(strict=True)
         target = parent / output.name
         if target.is_relative_to(store.root.resolve()) or store.root.resolve().is_relative_to(target):
@@ -269,8 +262,8 @@ def package_collection(run_dir, output_dir, *, profile=None):
             raise FileExistsError("Package output directory already exists")
         parent_guard = stack.enter_context(_Parent(parent))
         payload = _payload(store)
-        if verify_collection(store.root)["status"] != "passed":
-            raise ValueError("Finalized collection failed independent public verification")
+        if audit()["status"] != "passed":
+            raise ValueError("Payload failed independent public verification")
         parts, members, count = [], [], 0
         for value in payload:
             if value["size_bytes"] > profile["max_payload_bytes_per_part"]:
@@ -284,10 +277,12 @@ def package_collection(run_dir, output_dir, *, profile=None):
         if members:
             parts.append(members)
         created = utc_now()
-        inventory = {"format": "idea-json-backup", "format_version": "1.0.0",
+        inventory = {"format": "idea-json-backup", "format_version": "1.1.0" if payload_kind else "1.0.0",
                      "package_id": created.replace("-", "").replace(":", "") + "-" + uuid.uuid4().hex[:12],
                      "run_id": manifest["run_id"], "run_kind": manifest["run_kind"], "created_at": created,
                      "profile": profile, "payload": [], "archives": []}
+        if payload_kind:
+            inventory["payload_kind"] = payload_kind
         for index, part in enumerate(parts, 1):
             name = f"part-{index:05d}.tar.gz"
             inventory["payload"].extend(dict(value, archive_path=name) for value in part)
@@ -303,6 +298,30 @@ def package_collection(run_dir, output_dir, *, profile=None):
             _publish(destination, complete, "package-inventory.json")
             destination.unlink(prepared)
         return inventory
+
+
+def package_collection(run_dir, output_dir, *, profile=None):
+    """Package an ordinary finalized legacy collection."""
+    profile = _profile(profile)
+    with RunState.open(run_dir) as store:
+        manifest = store.manifest
+        if (manifest["phase"] != "finalized" or manifest["collection_status"] != "passed"
+                or store.get_internal("finalization") is not None or store.internal_items("payload:")):
+            raise ValueError("Packaging requires finalized verified collection with no pending publications")
+        if not codec.equal(codec.loads(store.path("manifest.json").read_bytes()), manifest):
+            raise ValueError("Public finalized manifest differs from its journal")
+        return _build_package(store, Path(output_dir).absolute(), profile, manifest,
+                              lambda: verify_collection(store.root))
+
+
+def package_release(release_dir, output_dir, *, profile=None):
+    """Package a separately verified resolved release; no source journal mutation."""
+    from .release_verify import Tree, verify_release
+    profile = _profile(profile)
+    with Tree(release_dir) as store:
+        metadata = codec.loads(store.body("release.json"))
+        return _build_package(store, Path(output_dir).absolute(), profile, metadata,
+                              lambda: verify_release(store.root), payload_kind="resolved_release")
 
 
 def _report_contract(report, package_id):
@@ -378,7 +397,13 @@ def write_package_report(package_dir, report, *, expected_inventory):
     """
     inventory_keys = {"format", "format_version", "package_id", "run_id", "run_kind", "created_at",
                       "profile", "payload", "archives"}
+    if (isinstance(expected_inventory, dict) and expected_inventory.get("format_version") == "1.1.0"
+            and expected_inventory.get("payload_kind") == "resolved_release"):
+        inventory_keys = inventory_keys | {"payload_kind"}
     if (not isinstance(expected_inventory, dict) or set(expected_inventory) != inventory_keys
+            or expected_inventory.get("format_version") not in ("1.0.0", "1.1.0")
+            or (expected_inventory.get("format_version") == "1.1.0"
+                and expected_inventory.get("payload_kind") != "resolved_release")
             or not isinstance(expected_inventory["package_id"], str) or not expected_inventory["package_id"]
             or not isinstance(expected_inventory["archives"], list)):
         raise ValueError("Expected complete producer inventory is required")

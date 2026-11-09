@@ -226,8 +226,10 @@ class Audit:
         expected_files = {"package-inventory.json": (len(body), sha256(body).hexdigest())}
         inventory = loads(body)
         del body
-        keys(inventory, INVENTORY_KEYS, "package inventory")
-        require(inventory["format"] == "idea-json-backup" and inventory["format_version"] == "1.0.0", "Wrong package format")
+        resolved = isinstance(inventory, dict) and inventory.get("format_version") == "1.1.0"
+        keys(inventory, INVENTORY_KEYS | ({"payload_kind"} if resolved else set()), "package inventory")
+        require(inventory["format"] == "idea-json-backup" and inventory["format_version"] in ("1.0.0", "1.1.0"), "Wrong package format")
+        require(not resolved or inventory["payload_kind"] == "resolved_release", "Unsupported package payload kind")
         utc(inventory["package_id"])
         utc(inventory["run_id"])
         self.report["package_id"] = inventory["package_id"]
@@ -253,7 +255,9 @@ class Audit:
             require(value["path"] not in payload, "Duplicate payload path", path=value["path"])
             require(value["path"] not in ("package-inventory.json", "package-verification.json"), "External package record listed as payload")
             payload[value["path"]] = value
-        require(CORE <= set(payload), "Required collection documentation/records are absent")
+        core = ({"release.json", "redirect-resolutions.json", "strict-verification.json", "verification.json", "README.md"}
+                | {"collection/" + name for name in CORE - {"verification.json"}}) if resolved else CORE
+        require(core <= set(payload), "Required preservation documentation/records are absent")
         require(list(payload) == sorted(payload), "Payload inventory is not in stable path order")
         membership = []
         for index, value in enumerate(inventory["archives"], 1):
@@ -284,11 +288,18 @@ class Audit:
                 self.archive(record, payload, limits, destination, seen)
             self.current_check = "payload_roundtrip"
             require(seen == set(payload), "Roundtrip payload path set differs", "payload_roundtrip")
-            manifest = loads((destination / "manifest.json").read_bytes())
-            require(manifest.get("run_id") == inventory["run_id"] and manifest.get("run_kind") == inventory["run_kind"]
-                    and manifest.get("phase") == "finalized" and manifest.get("collection_status") == "passed",
-                    "Packaged run is not the declared finalized collection", "payload_roundtrip")
-            report = verify_collection(destination)
+            if resolved:
+                from .release_verify import verify_release
+                manifest = loads((destination / "release.json").read_bytes())
+                require(manifest.get("run_id") == inventory["run_id"] and manifest.get("run_kind") == inventory["run_kind"],
+                        "Packaged release identity differs", "payload_roundtrip")
+                report = verify_release(destination)
+            else:
+                manifest = loads((destination / "manifest.json").read_bytes())
+                require(manifest.get("run_id") == inventory["run_id"] and manifest.get("run_kind") == inventory["run_kind"]
+                        and manifest.get("phase") == "finalized" and manifest.get("collection_status") == "passed",
+                        "Packaged run is not the declared finalized collection", "payload_roundtrip")
+                report = verify_collection(destination)
             require(report["status"] == "passed", "Roundtripped collection audit failed: " +
                     "; ".join(finding["message"] for finding in report["findings"]), "payload_roundtrip")
         require(self.files() == set(expected_files), "Package file set changed during audit")
