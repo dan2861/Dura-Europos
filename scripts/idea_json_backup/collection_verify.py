@@ -124,6 +124,15 @@ class Audit:
                        "findings": []}
         self.unfinished = False
 
+    def failure(self, category, code, message, *, qid=None, path=None):
+        finding = {"code": code, "qid": qid, "path": path, "message": message}
+        self.report["status"] = "failed"
+        self.report["findings"].append(finding)
+        for check in self.report["checks"]:
+            if check["check_id"] == category:
+                check["status"] = "failed"
+                check["findings"].append(finding)
+
     def path(self, name):
         _require(isinstance(name, str) and name and "\\" not in name, "Unsafe artifact path", "files", path=name)
         relative = PurePosixPath(name)
@@ -483,8 +492,9 @@ class Audit:
                     self.unfinished = True
                 else:
                     _error(row["error"], nullable=False)
-                    _require(row["error"]["retryable"] and len(links[qid]) < 3 and manifest["phase"] not in ("collected", "finalized"),
-                             "Unresolved item prevents collection completion", "scope", qid=qid)
+                    if not (row["error"]["retryable"] and len(links[qid]) < 3
+                            and manifest["phase"] not in ("collected", "finalized")):
+                        self.failure("scope", "invalid_record", "Unresolved item prevents collection completion", qid=qid)
                     self.unfinished = True
         self.report["counts"] = counts
         _keys(manifest["counts"], set(counts), "counts")
@@ -542,9 +552,10 @@ class Audit:
             self.path(relative.as_posix())
             actual.add(relative.as_posix())
         _require(actual == set(self.accounted), "Unexpected or unaccounted public artifacts", "files")
-        self.report["status"] = "not_checked" if self.unfinished else "passed"
+        self.report["status"] = "failed" if self.report["findings"] else "not_checked" if self.unfinished else "passed"
         for check in self.report["checks"]:
-            check["status"] = "not_checked" if self.unfinished and check["check_id"] == "scope" else "passed"
+            if not check["findings"]:
+                check["status"] = "not_checked" if self.unfinished and check["check_id"] == "scope" else "passed"
         return self.report
 
 
@@ -555,13 +566,7 @@ def verify_collection(directory):
         return audit.verify()
     except (OSError, ValueError, TypeError, KeyError, RecursionError, ArithmeticError, StopIteration) as exc:
         category = exc.check if isinstance(exc, Invalid) else "files"
-        finding = {"code": exc.code if isinstance(exc, Invalid) else "unusable_evidence",
-                   "qid": exc.qid if isinstance(exc, Invalid) else None,
-                   "path": exc.path if isinstance(exc, Invalid) else None, "message": str(exc)}
-        audit.report["status"] = "failed"
-        audit.report["findings"].append(finding)
-        for check in audit.report["checks"]:
-            if check["check_id"] == category:
-                check["status"] = "failed"
-                check["findings"].append(finding)
+        audit.failure(category, exc.code if isinstance(exc, Invalid) else "unusable_evidence", str(exc),
+                      qid=exc.qid if isinstance(exc, Invalid) else None,
+                      path=exc.path if isinstance(exc, Invalid) else None)
         return audit.report

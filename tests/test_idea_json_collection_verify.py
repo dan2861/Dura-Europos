@@ -40,20 +40,23 @@ def rewrite(root, manifest, inventory, attempts):
     write_json(root, "manifest.json", manifest)
 
 
-def fixture(root):
+def fixture(root, *, unavailable=False):
     root.mkdir()
-    selection_fixture(root / "selection", main=("Q1",), scholarly=())
+    qids = ("Q1", "Q2") if unavailable else ("Q1",)
+    qid_body = ("\n".join(qids) + "\n").encode()
+    selection_fixture(root / "selection", main=qids, scholarly=())
     selection = {"metadata": store(root, "selection/selection.json", (root / "selection/selection.json").read_bytes()),
-                 "qid_list": store(root, "selection/qids.txt", b"Q1\n"), "selected_count": 1}
-    source = b'{"success":1,"entities":{"Q1":' + ENTITY + b'}}'
+                 "qid_list": store(root, "selection/qids.txt", qid_body), "selected_count": len(qids)}
+    stub = b',"Q2":{"id":"Q2","missing":""}' if unavailable else b''
+    source = b'{"success":1,"entities":{"Q1":' + ENTITY + stub + b'}}'
     source_descriptor = store(root, "responses/A000001.json", source, complete=True)
-    attempt = {"attempt_id": "A000001", "requested_qids": ["Q1"], "reserved_at": TIME,
+    attempt = {"attempt_id": "A000001", "requested_qids": list(qids), "reserved_at": TIME,
                "dispatch_started_at": "2026-11-03T12:00:01.000000Z",
                "headers_received_at": "2026-11-03T12:00:02.000000Z", "headers_observed": True,
                "response_received_at": "2026-11-03T12:00:02.000000Z", "response_elapsed_ms": 1000,
                "receipt_complete": True, "finished_at": "2026-11-03T12:00:03.000000Z", "recovered_at": None,
                "request": {"method": "GET", "url": "https://www.wikidata.org/w/api.php",
-                           "parameters": dict(PARAMETERS, ids="Q1"), "headers": dict(HEADERS)},
+                           "parameters": dict(PARAMETERS, ids="|".join(qids)), "headers": dict(HEADERS)},
                "http": {"status_code": 200, "headers": {"content-encoding": ["identity"],
                         "content-length": [str(len(source))]}},
                "encoded": source_descriptor, "decoded": dict(source_descriptor), "diagnostics": [],
@@ -65,6 +68,16 @@ def fixture(root):
                   "item": store(root, "items/Q1.json", ENTITY), "source_response_id": "A000001",
                   "source_entity_key": "Q1", "attempt_ids": ["A000001"], "membership_at_retrieval": "matches",
                   "next_eligible_at": None, "error": None}]
+    if unavailable:
+        failure = {"stage": "identity", "code": "missing_or_redirect",
+                   "message": "Invented unavailable Q2", "retryable": False}
+        attempt["outcome"] = "mixed"
+        attempt["item_results"].append({"qid": "Q2", "outcome": "review_required", "returned_qid": "Q2",
+                                        "error": copy.deepcopy(failure)})
+        inventory.append({"requested_qid": "Q2", "returned_qid": "Q2", "status": "unresolved",
+                          "lastrevid": None, "modified": None, "retrieved_at": None, "item": None,
+                          "source_response_id": None, "source_entity_key": None, "attempt_ids": ["A000001"],
+                          "membership_at_retrieval": "not_checked", "next_eligible_at": None, "error": failure})
     manifest = {"format": "idea-json-backup", "format_version": "1.0.0",
                 "run_id": "20261103T120000.000000Z-invented", "run_kind": "synthetic", "exporter_version": "0.1.0",
                 "runtime": {"python": "3.12.0", "sqlite": "3.43.2", "platform": "Invented"},
@@ -76,7 +89,7 @@ def fixture(root):
                     "supported_content_encodings": ["identity", "gzip"], "http_redirect_policy": "reject"},
                 "next_dispatch_at": "2026-11-03T12:00:04.000000Z", "phase": "collected", "state_sequence": 5,
                 "public_records": {name: {"file": None, "state_sequence": 5} for name in ("inventory", "attempts")},
-                "counts": {"selected": 1, "accepted": 1, "pending": 0, "unresolved": 0},
+                "counts": {"selected": len(qids), "accepted": 1, "pending": 0, "unresolved": int(unavailable)},
                 "collection_status": "not_checked", "verification_path": None,
                 "limitations": ["Collection period; no media, full history or recursive linked-entity retrieval"]}
     # Declared independently: the verifier fixture never calls documentation generation.
@@ -84,7 +97,7 @@ def fixture(root):
         "# Invented preservation run\n\n"
         "Run ID: 20261103T120000.000000Z-invented\n"
         "Run kind: synthetic\n"
-        "Frozen QIDs: 1\n"
+        "Frozen QIDs: " + str(len(qids)) + "\n"
         "Frozen QID list SHA-256: " + selection["qid_list"]["sha256"] + "\n\n"
         "Items are extracted item JSON; responses retain preserved response-body bytes.\n"
         "A collection period is not one historical instant. Scope excludes media bytes,\n"
@@ -136,6 +149,61 @@ def with_retry(root, *, dispatch=8, status=503, retry_after=None, api_error=None
 
 
 class CollectionVerifierTests(unittest.TestCase):
+    def test_unresolved_item_retains_failed_scope_but_audits_accepted_payload(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / "run"
+            fixture(root, unavailable=True)
+            before = {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+            report = verify_collection(root)
+            self.assertEqual(report["status"], "failed")
+            self.assertEqual(report["counts"], {"selected": 2, "pending": 0, "accepted": 1, "unresolved": 1})
+            self.assertEqual({check["check_id"]: check["status"] for check in report["checks"]},
+                             {"scope": "failed", "source_content": "passed", "provenance": "passed", "files": "passed"})
+            self.assertEqual([(finding["code"], finding["qid"]) for finding in report["findings"]],
+                             [("invalid_record", "Q2")])
+            self.assertEqual(before, {path.relative_to(root): path.read_bytes()
+                                      for path in root.rglob("*") if path.is_file()})
+
+    def test_unresolved_scope_does_not_mask_corrupt_accepted_content_or_evidence(self):
+        for category in ("source_content", "provenance", "files"):
+            with self.subTest(category=category), TemporaryDirectory() as directory:
+                root = Path(directory) / "run"
+                manifest, inventory, attempts = fixture(root, unavailable=True)
+                if category == "source_content":
+                    changed = ENTITY.replace(b'"identifier":"0007"', b'"identifier":"0008"')
+                    inventory[0]["item"] = store(root, "items/Q1.json", changed)
+                elif category == "provenance":
+                    attempts[0]["http"]["headers"]["content-length"] = ["1"]
+                else:
+                    (root / "unexpected.body").write_bytes(b"Invented unaccounted evidence")
+                rewrite(root, manifest, inventory, attempts)
+                before = {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+                report = verify_collection(root)
+                self.assertEqual(report["status"], "failed")
+                self.assertEqual(report["counts"], {"selected": 2, "pending": 0, "accepted": 1, "unresolved": 1})
+                checks = {check["check_id"]: check for check in report["checks"]}
+                self.assertEqual(checks["scope"]["status"], "failed")
+                self.assertEqual(checks[category]["status"], "failed")
+                self.assertTrue(checks[category]["findings"])
+                self.assertEqual(before, {path.relative_to(root): path.read_bytes()
+                                          for path in root.rglob("*") if path.is_file()})
+
+    def test_unresolved_item_cannot_be_hidden_by_a_passing_finalized_report(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / "run"
+            manifest, inventory, attempts = fixture(root, unavailable=True)
+            report = verify_collection(root)
+            report.update(status="passed", findings=[],
+                          counts={"selected": 2, "pending": 0, "accepted": 1, "unresolved": 1})
+            for check in report["checks"]:
+                check.update(status="passed", findings=[])
+            manifest.update(phase="finalized", collection_status="passed", verification_path="verification.json")
+            write_json(root, "verification.json", report)
+            rewrite(root, manifest, inventory, attempts)
+            result = verify_collection(root)
+            self.assertEqual(result["status"], "failed")
+            self.assertTrue(result["findings"])
+
     def test_declared_readme_is_accounted_without_mutation(self):
         with TemporaryDirectory() as directory:
             root = Path(directory) / "run"

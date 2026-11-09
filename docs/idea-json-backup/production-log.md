@@ -4,6 +4,12 @@ Started 2026-11-03 after Danu's three-item MVP pilot and separate persisted veri
 
 Authorization: assistant runs offline TDD and makes small local commits; Danu executes operational discovery/collection/Dataverse commands in guided runs. No automatic live calls, uploads, publication, Wikidata edits or pushes.
 
+## 2026-11-08 reviewed redirect-release increments
+
+Danu approved redirect-record-only for Q134471369→Q122677115, preserving33,708 usable JSONs plus1 explicit redirect across the unchanged33,709 frozen IDs. Historical retrieval is excluded. Separate architecture/contract reviews recommend an independently versioned self-contained release with unchanged source collection under collection/, avoiding in-place journal migration. See redirect-release.md.
+
+Diagnostic RED: an invented mixed accepted/missing fixture returned null counts and never checked accepted payloads. GREEN:24 focused verifier tests pass; well-formed unresolved scope remains failed while counts and full content/provenance/files checks continue. Added corruption cases still fail and a forged finalized partial report remains rejected. This keeps the existing schema/completion rule unchanged and does not audit actual backup data.
+
 ## 2026-11-08 historical profile evidence increments
 
 Danu's guided disk check reports /dev/disk3s5 with12Gi available and94% capacity. This is operator-reported capacity, not a full-workflow forecast. It does not establish a need for cleanup or another drive. Continue the independent offline profile increment before live expansion; the existing pilot report/downloads remain unchanged.
