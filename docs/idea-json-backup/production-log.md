@@ -12,6 +12,8 @@ Contract RED: the new invented historical-evidence test failed because retention
 
 Independent verifier RED: both complete and unknown-time historical reports were rejected as unsupported candidate profiles. GREEN:16 verifier tests pass, including handwritten evidence-bearing archives, unchanged bytes and no new deposit claim. False-pass/private-URL/gapped-part rejections were already-green regressions and remain held. Fixed archive/compression/caps are unchanged; the independent checker uses only the neutral schema validator.
 
+Producer RED: both complete and unknown-time historical profiles were rejected. After accepting the neutral contract, a second RED showed caller mutation during source auditing could replace the already validated nested report with a false deposit claim. GREEN:17 producer tests pass after snapshotting the entire profile before validation. Original collection/evidence bytes are preserved, existing arbitrary-retention/ceiling guards remain effective, and no new deposit outcome is created.
+
 | Increment | RED observed | GREEN evidence |
 | --- | --- | --- |
 | Numeric discovery union | Selection module absent | Invented main Q10/Q2 + scholarly Q2/Q1 freezes Q1/Q2/Q10 and preserves exact source bytes |

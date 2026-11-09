@@ -14,6 +14,50 @@ from test_idea_json_finalize import fixture
 
 
 class PackageTests(unittest.TestCase):
+    def test_caller_changes_cannot_replace_the_validated_historical_evidence(self):
+        import copy
+        from scripts.idea_json_backup import package
+        from test_idea_json_retention import evidence
+        with TemporaryDirectory() as directory:
+            root = fixture(directory)
+            self.assertEqual(finalize(root)["status"], "passed")
+            historical = evidence()
+            expected = copy.deepcopy(historical)
+            profile = dict(package.DEFAULT_PROFILE, retention_evidence=historical)
+            original = package.verify_collection
+
+            def change_caller_after_validation(path):
+                historical.update(deposit_status="passed", findings=[])
+                return original(path)
+
+            output = Path(directory) / "package"
+            with patch.object(package, "verify_collection", side_effect=change_caller_after_validation):
+                inventory = package.package_collection(root, output, profile=profile)
+            self.assertEqual(inventory["profile"]["retention_evidence"], expected)
+            self.assertEqual(json.loads((output / "package-inventory.json").read_bytes())[
+                "profile"]["retention_evidence"], expected)
+
+    def test_historical_evidence_is_carried_without_changing_old_status_or_source(self):
+        import copy
+        from scripts.idea_json_backup.package import DEFAULT_PROFILE, package_collection
+        from test_idea_json_retention import evidence
+        for complete in (False, True):
+            with self.subTest(complete=complete), TemporaryDirectory() as directory:
+                root = fixture(directory)
+                self.assertEqual(finalize(root)["status"], "passed")
+                before = self.public(root)
+                historical = evidence(complete=complete)
+                original = copy.deepcopy(historical)
+                profile = dict(DEFAULT_PROFILE, retention_evidence=historical)
+                output = Path(directory) / "evidence-package"
+                inventory = package_collection(root, output, profile=profile)
+                saved = json.loads((output / "package-inventory.json").read_bytes())
+                self.assertEqual(saved["profile"]["retention_evidence"], original)
+                self.assertEqual(inventory["profile"]["retention_evidence"], original)
+                self.assertEqual(historical, original)
+                self.assertEqual(self.public(root), before)
+                self.assertNotIn("deposit_status", inventory)
+
     def test_failed_report_retains_damaged_missing_or_unsafe_archive_evidence(self):
         from scripts.idea_json_backup.package import package_collection, write_package_report
         for damage in ("changed", "missing", "symlink"):

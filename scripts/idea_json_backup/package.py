@@ -2,6 +2,7 @@
 import gzip
 import hashlib
 from contextlib import ExitStack
+from copy import deepcopy
 import os
 from pathlib import Path
 import re
@@ -14,6 +15,7 @@ from scripts.sample_backup import jsoncodec as codec
 from .collection_verify import verify_collection
 from .contract import valid_utc
 from .state import RunState, utc_now
+from .retention import validate_retention_evidence
 
 TAR_HEADER_POLICY = "uid=0,gid=0,uname=,gname=,mode=0644,mtime=0"
 DEFAULT_PROFILE = {"format": "tar.gz", "max_members": 5000,
@@ -25,14 +27,15 @@ DEFAULT_PROFILE = {"format": "tar.gz", "max_members": 5000,
 def _profile(value):
     if value is not None and not isinstance(value, dict):
         raise ValueError("Archive profile must be an object")
-    profile = dict(DEFAULT_PROFILE if value is None else value)
+    profile = deepcopy(DEFAULT_PROFILE if value is None else value)
     if (set(profile) != set(DEFAULT_PROFILE) or profile["format"] != "tar.gz"
             or any(type(profile[key]) is not int or not 1 <= profile[key] <= DEFAULT_PROFILE[key]
                    for key in ("max_members", "max_payload_bytes_per_part"))
             or type(profile["gzip_level"]) is not int or profile["gzip_level"] != 6
             or type(profile["gzip_mtime"]) is not int or profile["gzip_mtime"] != 0
-            or profile["tar_header_policy"] != TAR_HEADER_POLICY or profile["retention_evidence"] is not None):
-        raise ValueError("Invalid provisional archive profile")
+            or profile["tar_header_policy"] != TAR_HEADER_POLICY):
+        raise ValueError("Invalid archive profile")
+    validate_retention_evidence(profile["retention_evidence"])
     return profile
 
 
