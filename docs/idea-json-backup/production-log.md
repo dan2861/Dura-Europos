@@ -14,6 +14,8 @@ Pure contract RED: release_contract was absent. GREEN:5 tests pass, including na
 
 Independent release audit RED: new verifier absent. GREEN:9 handwritten-fixture tests passed for strict-source audits, exact reconciliation/bindings, regular anchored trees, unknown observations, pending states, saved-report checks, corruption and input mutation. Separate review identified a README gap:7 wrong/duplicate/missing identity/count/limitation subcases incorrectly passed after hashes were refreshed. RED was established and fixed;10 verifier tests now pass. The audit requires exact usable/redirected counts and the explicit origin-without-item-JSON limitation. It imports neither producer nor transport and makes no new-deposit or live-redirect claim.
 
+Release producer RED: create_release absent. GREEN:6 journal-backed invented tests pass; source public bytes/request remain unchanged, only usable JSON is copied, private state is excluded, stale/unrelated mappings hold, interrupted/changed copies remain partial, and output swaps cannot redirect writes. Already-green publication regressions confirm copied data/report changes after audit withhold the final marker. Separate producer review independently reran all6 tests and an input-callback change case; clear. Report publication precedes the final marker and all inputs are rechecked.
+
 ## 2026-11-08 historical profile evidence increments
 
 Danu's guided disk check reports /dev/disk3s5 with12Gi available and94% capacity. This is operator-reported capacity, not a full-workflow forecast. It does not establish a need for cleanup or another drive. Continue the independent offline profile increment before live expansion; the existing pilot report/downloads remain unchanged.
