@@ -1,5 +1,7 @@
 # Production collector: guided pilot runbook
 
+Current checkpoint2026-11-08: the pilot workflow below is completed history. Profile evidence support now passes314 full-suite tests and separate/final reviews. Danu reports12Gi available. Follow [production-readiness.md](production-readiness.md) for the next one-batch production start against the frozen33,709-QID selection, then pause for size/timing/resource review before expanding. The older "no full-collection command supplied" boundary below described the earlier pilot stage and does not replace this bounded next-step packet.
+
 Reviewed 2026-11-03; updated 2026-11-07 after the successful third pilot attempt and documentation fix. **Offline collection-stage reviews are clear for the guided parent-linked pilot.** The collection-stage suite passed 238 tests; the later archive-stage full suite passed 273, including the historical sample suite. This pilot workflow is complete; proceed to the archive runbook after the recorded reviews. Danu executes operational commands one guided step at a time and returns each report. The assistant runs offline TDD and makes local commits. Full-population collection, scale and archive readiness are not established by this clearance.
 
 The saved production parent `backup/idea-selection-001` contains the frozen 33,709-QID population. The earlier MVP pilot tested prototype preservation; it did not exercise this production journal, recovery or finalization workflow. Start with a parent-linked three-item production pilot.

@@ -20,6 +20,40 @@ from test_idea_json_production import Clock, graph, item
 
 
 class ArchiveIntegrationTests(unittest.TestCase):
+    def test_cli_historical_profile_never_supplies_the_new_deposits_receipt(self):
+        from test_idea_json_finalize import fixture
+        from test_idea_json_retention import evidence
+        for complete in (False, True):
+            with self.subTest(complete=complete), TemporaryDirectory() as directory, patch(
+                    "socket.socket.connect", side_effect=AssertionError("Offline fixture only")):
+                base = Path(directory)
+                root = fixture(directory)
+                self.assertEqual(finalize(root)["status"], "passed")
+                source = self.files(root, exclude_state=True)
+                historical = evidence(complete=complete)
+                profile = base / "profile.json"
+                profile.write_text(json.dumps(dict(DEFAULT_PROFILE, retention_evidence=historical)))
+                profile_before = profile.read_bytes()
+                output = base / "historical-package"
+                code, report = self.command(["package", "--run", str(root), "--output", str(output),
+                                             "--profile", str(profile)])
+                self.assertEqual((code, report["status"]), (0, "passed"), report)
+                self.assertEqual(self.command(["verify-package", str(output)])[0], 0)
+                inventory = json.loads((output / "package-inventory.json").read_bytes())
+                self.assertEqual(inventory["profile"]["retention_evidence"], historical)
+                downloads = base / "invented-downloads"
+                downloads.mkdir()
+                for name in ["package-inventory.json"] + [part["path"] for part in inventory["archives"]]:
+                    (downloads / name).write_bytes((output / name).read_bytes())
+                code, report = self.command(["verify-deposit", "--package", str(output), "--downloads", str(downloads)])
+                self.assertEqual((code, report["byte_status"], report["deposit_status"]),
+                                 (2, "passed", "not_checked"))
+                self.assertIsNone(report["acquisition"])
+                self.assertIsNone(report["publication"])
+                self.assertEqual([finding["code"] for finding in report["findings"]], ["acquisition_missing"])
+                self.assertEqual(profile.read_bytes(), profile_before)
+                self.assertEqual(self.files(root, exclude_state=True), source)
+
     def test_retry_committed_source_recovery_and_simulated_download_roundtrip(self):
         clock, calls = Clock(), []
 

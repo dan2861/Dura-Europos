@@ -14,6 +14,10 @@ Independent verifier RED: both complete and unknown-time historical reports were
 
 Producer RED: both complete and unknown-time historical profiles were rejected. After accepting the neutral contract, a second RED showed caller mutation during source auditing could replace the already validated nested report with a false deposit claim. GREEN:17 producer tests pass after snapshotting the entire profile before validation. Original collection/evidence bytes are preserved, existing arbitrary-retention/ceiling guards remain effective, and no new deposit outcome is created.
 
+Closure: added an already-green invented CLI composition through evidence-bearing package, independent saved audit and simulated new deposit without its own receipt. Both historical complete/not_checked cases retain the new deposit as not_checked with acquisition/publication null. Final full suite314 tests passed26.353s. Separate producer milestone review reran17 producer and7 contract tests and is clear. Final independent reviewer composed legacy/null, partial and complete historical profiles through actual main() CLI handlers with network blocked; all packaging/audits passed and no historical receipt verified a new deposit. No actual exporter, capacity command, item retrieval, upload or publication was run by the assistant.
+
+Small local commits:8e48eaa(contract),8362397(independent verifier),1152418(producer). Prepared changes/idea-json-backup/production-archive-profile.json by copying the existing candidate settings and embedding saved report001; no operational validation was run on actual backup inputs. The next guided step is a one-batch production start and actual size/timing review, not unattended full expansion.
+
 | Increment | RED observed | GREEN evidence |
 | --- | --- | --- |
 | Numeric discovery union | Selection module absent | Invented main Q10/Q2 + scholarly Q2/Q1 freezes Q1/Q2/Q10 and preserves exact source bytes |

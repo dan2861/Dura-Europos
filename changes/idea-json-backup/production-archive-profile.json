@@ -1,0 +1,46 @@
+{
+  "format": "tar.gz",
+  "max_members": 5000,
+  "max_payload_bytes_per_part": 268435456,
+  "gzip_level": 6,
+  "gzip_mtime": 0,
+  "tar_header_policy": "uid=0,gid=0,uname=,gname=,mode=0644,mtime=0",
+  "retention_evidence": {
+    "format_version": "1.0.0",
+    "package_id": "20261108T184113.708915Z-a1cb9dfcab5e",
+    "checked_at": "2026-11-09T00:42:08.482124Z",
+    "acquisition": {
+      "dataset_url": "https://dataverse.yale.edu/dataset.xhtml?persistentId=doi%3A10.60600%2FYU%2FKPHJOF&version=DRAFT",
+      "persistent_id": "doi:10.60600/YU/KPHJOF",
+      "dataset_version": "DRAFT",
+      "downloaded_at": null,
+      "files": [
+        {
+          "remote_file_id": "221111",
+          "download_url": "https://dataverse.yale.edu/api/access/datafile/221111",
+          "local_path": "package-inventory.json",
+          "downloaded_at": null
+        },
+        {
+          "remote_file_id": "221110",
+          "download_url": "https://dataverse.yale.edu/api/access/datafile/221110",
+          "local_path": "part-00001.tar.gz",
+          "downloaded_at": null
+        }
+      ],
+      "recorded_by": "Danu (operator report in this chat)",
+      "evidence_kind": "operator_recorded"
+    },
+    "byte_status": "passed",
+    "deposit_status": "not_checked",
+    "findings": [
+      {
+        "code": "acquisition_incomplete",
+        "qid": null,
+        "path": null,
+        "message": "Operator-recorded acquisition is incomplete; deposit remains unverified"
+      }
+    ],
+    "publication": null
+  }
+}

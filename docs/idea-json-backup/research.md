@@ -1,5 +1,7 @@
 # IDEA JSON backup: initial research
 
+Current readiness update (2026-11-08): [production-readiness.md](production-readiness.md) supersedes the early status descriptions below. Current official Wikidata access/API etiquette/rate-limit/User-Agent and Yale quick-start/FAQ pages were reopened read-only. Small50-ID batches, serial requests, contact identification, maxlag and server waits remain documented. The access guide still cautions against large Action API result sets without giving a numeric threshold for this exact job. Full-run suitability is not inferred from being below a rate limit. Actual pilot/download evidence supports tar.gz byte retention at the pilot size, with missing download times explicitly retained. Danu's guided capacity check subsequently reported12Gi available. Offline historical profile support now passes314 tests and separate/final reviews. The next guided step is one bounded production batch followed by actual size/timing/resource review; no unattended full expansion is cleared and no new entity data was requested by the assistant.
+
 Date: 2026-10-28. QRSPI stage: Research, preliminary findings. This is not an approved specification, implementation plan or completed full backup.
 
 ## Requirements carried forward
