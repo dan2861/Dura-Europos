@@ -4,6 +4,12 @@ Started 2026-11-03 after Danu's three-item MVP pilot and separate persisted veri
 
 Authorization: assistant runs offline TDD and makes small local commits; Danu executes operational discovery/collection/Dataverse commands in guided runs. No automatic live calls, uploads, publication, Wikidata edits or pushes.
 
+## 2026-11-08 historical profile evidence increments
+
+Danu's guided disk check reports /dev/disk3s5 with12Gi available and94% capacity. This is operator-reported capacity, not a full-workflow forecast. It does not establish a need for cleanup or another drive. Continue the independent offline profile increment before live expansion; the existing pilot report/downloads remain unchanged.
+
+Contract RED: the new invented historical-evidence test failed because retention.py was absent. Seven contract tests then passed; fourteen existing deposit tests passed after verbatim extraction of the pure receipt validation into acquisition.py. Separate contract review found one traceback privacy concern. Added malformed-port regression established RED; generic exception suppression closes that path. Evidence accepts only consistent byte-passed historical records with known source identity, retains unknown times/not_checked, and never establishes limits/new deposit/publication.
+
 | Increment | RED observed | GREEN evidence |
 | --- | --- | --- |
 | Numeric discovery union | Selection module absent | Invented main Q10/Q2 + scholarly Q2/Q1 freezes Q1/Q2/Q10 and preserves exact source bytes |
