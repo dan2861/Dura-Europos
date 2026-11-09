@@ -18,6 +18,8 @@ Release producer RED: create_release absent. GREEN:6 journal-backed invented tes
 
 Release archives RED: package_release absent; the first implemented roundtrip still wrongly required collection/verification.json, which the unchanged collected/failed source need not contain. GREEN:2 release-package tests pass after distinguishing root release verification from legacy collection verification. Existing33 package producer/verifier tests pass. Inventory1.1.0 explicitly identifies resolved_release; independent extraction selects the release audit, while legacy1.0.0 remains unchanged. Separate package/CLI reviewer additionally rejected rehashed omitted-source, downgrade and wrong-run attacks; clear. Simulated downloads still require their own deposit receipt.
 
+Release CLI RED: create-release/verify-release/package-release actions absent. GREEN:2 actual invented CLI tests pass from journal-backed mixed source through release, package and simulated download; protected input requests hold before creation. Final full normal suite342 tests passed29.744s. Separate final reviewer independently composed actual main() handlers, verified null observation time/no fabricated old-QID JSON/source immutability, and rejected truncated downloads/changed release. No operational command or network retrieval was run against real backup data. Later guided stages remain separate.
+
 ## 2026-11-08 historical profile evidence increments
 
 Danu's guided disk check reports /dev/disk3s5 with12Gi available and94% capacity. This is operator-reported capacity, not a full-workflow forecast. It does not establish a need for cleanup or another drive. Continue the independent offline profile increment before live expansion; the existing pilot report/downloads remain unchanged.

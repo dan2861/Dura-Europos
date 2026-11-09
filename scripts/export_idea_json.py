@@ -20,7 +20,7 @@ from scripts.idea_json_backup.collection_verify import verify_collection
 from scripts.idea_json_backup.finalize import finalize
 from scripts.idea_json_backup.files import write_bytes
 from scripts.idea_json_backup.documentation import write_readme
-from scripts.idea_json_backup.package import package_collection, write_package_report
+from scripts.idea_json_backup.package import package_collection, package_release, write_package_report
 from scripts.idea_json_backup.package_verify import verify_package
 from scripts.idea_json_backup.deposit import Directory, verify_deposit
 from scripts.idea_json_backup.external_report import ExternalReport
@@ -132,6 +132,16 @@ def main(argv=None):
     command.add_argument("--run", required=True, type=Path)
     command = commands.add_parser("write-readme", help="Offline: add missing scope documentation to a stopped unfinalized run")
     command.add_argument("--run", required=True, type=Path)
+    command = commands.add_parser("create-release", help="Offline: copy a stopped run with explicitly reviewed redirects")
+    command.add_argument("--run", required=True, type=Path)
+    command.add_argument("--output", required=True, type=Path)
+    command.add_argument("--request", required=True, type=Path)
+    command = commands.add_parser("verify-release", help="Read-only audit of a self-contained resolved release")
+    command.add_argument("directory", type=Path)
+    command = commands.add_parser("package-release", help="Offline bounded archives of a verified resolved release")
+    command.add_argument("--release", required=True, type=Path)
+    command.add_argument("--output", required=True, type=Path)
+    command.add_argument("--profile", required=True, type=Path)
     command = commands.add_parser("package", help="Offline candidate archives and independent local roundtrip")
     command.add_argument("--run", required=True, type=Path)
     command.add_argument("--output", required=True, type=Path)
@@ -161,12 +171,28 @@ def main(argv=None):
             report = _status(args.run)
         elif args.command == "write-readme":
             report = write_readme(args.run)
-        elif args.command == "package":
+        elif args.command == "create-release":
+            from scripts.idea_json_backup.release import create_release
+            from scripts.idea_json_backup.release_verify import verify_release
+            try:
+                output = args.output.resolve()
+            except RuntimeError:
+                raise ValueError("Unsafe release output path") from None
+            with ExitStack() as stack:
+                request, unchanged = _acquisition(args.request, protected_roots=(args.run, output), stack=stack)
+                create_release(args.run, output, request, validate_input=unchanged)
+                report = verify_release(output)
+                unchanged()
+        elif args.command == "verify-release":
+            from scripts.idea_json_backup.release_verify import verify_release
+            report = verify_release(args.directory)
+        elif args.command in ("package", "package-release"):
             try:
                 output = args.output.resolve()
             except RuntimeError as exc:
                 raise ValueError("Unsafe package output path: " + str(exc)) from exc
-            inventory = package_collection(args.run, output, profile=_profile(args.profile))
+            inventory = (package_collection(args.run, output, profile=_profile(args.profile)) if args.command == "package"
+                         else package_release(args.release, output, profile=_profile(args.profile)))
             report = verify_package(output)
             write_package_report(output, report, expected_inventory=inventory)
         elif args.command == "verify-package":
