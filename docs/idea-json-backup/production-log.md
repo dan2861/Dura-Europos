@@ -10,6 +10,8 @@ Danu approved redirect-record-only for Q134471369→Q122677115, preserving33,708
 
 Diagnostic RED: an invented mixed accepted/missing fixture returned null counts and never checked accepted payloads. GREEN:24 focused verifier tests pass; well-formed unresolved scope remains failed while counts and full content/provenance/files checks continue. Added corruption cases still fail and a forged finalized partial report remains rejected. This keeps the existing schema/completion rule unchanged and does not audit actual backup data.
 
+Pure contract RED: release_contract was absent. GREEN:5 tests pass, including native/token-preserving metadata, schema/count identity, ambiguous mapping/unsafe URL/path, unknown observations and integer type guards. A separate reviewer independently reran all5 tests and is clear. Actual source/target binding remains the release verifier's responsibility. Contract format/version and source-copy/publication plan are recorded before integration.
+
 ## 2026-11-08 historical profile evidence increments
 
 Danu's guided disk check reports /dev/disk3s5 with12Gi available and94% capacity. This is operator-reported capacity, not a full-workflow forecast. It does not establish a need for cleanup or another drive. Continue the independent offline profile increment before live expansion; the existing pilot report/downloads remain unchanged.

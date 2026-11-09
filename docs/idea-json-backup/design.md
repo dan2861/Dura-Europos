@@ -45,6 +45,8 @@ Official guidance cautions against large-volume use of both EntityData and the A
 
 ## 4. Source preservation and per-item acceptance
 
+Approved limited addendum2026-11-08: Danu selected the [reviewed redirect release](redirect-release.md) for Q134471369→Q122677115, whose target is already accepted. Keep the original run and strict acceptance rule below unchanged; a distinct versioned release may reconcile33,708 usable JSONs plus1 explicitly reviewed redirect across the unchanged33,709-QID scope. Historical pre-redirect retrieval is excluded. This does not permit silent target substitution, ordinary acceptance of a stub or automatic exceptions for other missing items.
+
 Retain the complete response-body bytes and request/response metadata before accepting any contained item. Keep every attempt's received failure/partial body when present, with complete/partial/unknown status. Never label a truncated body complete.
 
 If HTTP content decoding fails, preserve the received encoded bytes as diagnostic evidence with their encoding and honest completeness status. Do not describe them as decoded JSON or accept items from an incomplete decode.
@@ -92,6 +94,8 @@ Attempt records identify requested QIDs, request settings, actual start/finish t
 Implementation may use internal checkpoints/journals for recovery, but the final inventory must reconcile to every frozen QID. Exact record schemas and recovery mechanics must be made concrete in the reviewed implementation plan before code is written; do not claim the old manifest implements this contract.
 
 ## 7. Independent collection verification
+
+For the original collection, the strict requirements below remain unchanged. The approved [redirect-release addendum](redirect-release.md) adds separate reconciliation verification: independently audit every usable item/source/file, preserve the strict failed result, validate the operator-recorded redirect against the preserved unavailable response and accepted target, and report distinct usable/redirected counts. It must not report33,709 ordinary item JSONs.
 
 A verifier, independent of the extraction path, must read saved source bodies, extracted files, selection and inventory and establish:
 

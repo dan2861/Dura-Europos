@@ -8,6 +8,8 @@ Companion: [record layouts](record-layouts.md), part of this Plan's review.
 
 ## 1. Outcome and execution boundary
 
+Approved outcome update2026-11-08: Danu selected redirect-record-only for the one unavailable frozen QID. Follow the [redirect-release addendum](redirect-release.md) and versioned [record layouts](record-layouts.md): separate self-contained release, original collection unchanged, explicit usable/redirected counts, automatic offline TDD/local commits and guided operations. This supersedes the earlier no-exception completion assumption only through the distinct release contract.
+
 Implement a resumable JSON-only collector, an independent offline verifier, archive packaging and offline verification of downloaded deposit files. Preserve the frozen population, original response evidence and complete extracted item objects. Keep the historical sample exporter and its format intact.
 
 Danu approved the roadmap and requested MVP-first delivery. After initially choosing guided work, Danu explicitly authorized the assistant to finish the MVP automatically using RED–GREEN tests and a commit per increment. MVP validation passed 105 offline tests (54 MVP, 51 historical sample). At that checkpoint discovery and live pilot operations had not started; the current status above records subsequent guided work. The prototype remains python -m scripts.idea_json_backup; implemented production selection/collection/package commands are python -m scripts.export_idea_json, including a separate read-only verify-package action. Deposit interfaces below remain planned. Operational commands pause for Danu's guided execution under the later continuation request.
