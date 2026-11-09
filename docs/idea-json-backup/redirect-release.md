@@ -16,6 +16,8 @@ The independent release audit must require all original non-scope checks passed,
 
 The release uses distinct format idea-json-backup-release, version1.0.0, and completion_basis usable_items_and_reviewed_redirects. Its counts explicitly distinguish selected/usable_items/redirected/pending/unresolved. For this case:33,709/33,708/1/0/0. The original counts and failed strict report remain in the nested collection/evidence. A passing release report means reconciled release verification, not33,709 ordinary entity JSONs or a verified deposit/publication.
 
+The original counts remain in collection/ unchanged. strict-verification.json records a fresh full strict audit with the same failed completion outcome; it is not described as an unchanged copy of the earlier stdout report, which stopped before later checks.
+
 Metadata binds source manifest/inventory/attempt/QID-list descriptors, resolution record, strict report and README. The release marker does not hash its own verification report. Its verification report binds the exact release-marker bytes and is published before the final marker, avoiding a checksum cycle. Use owned pending files, recheck inputs before publication and publish release.json last. Partial output is not a finalized release and is retained for review; this small release producer does not resume a failed copy.
 
 ## Packaging and guided workflow
@@ -23,3 +25,5 @@ Metadata binds source manifest/inventory/attempt/QID-list descriptors, resolutio
 Add explicit create-release, verify-release and package-release commands. Existing collection/finalization/package commands keep their original meaning. A package-inventory1.1.0 branch identifies payload_kind resolved_release; the bounded tar.gz format/caps and all-payload comparison remain unchanged. Its independent extractor dispatches to verify_release for the new payload. Legacy inventory1.0.0 packages continue to dispatch to strict finalized-collection verification. Deposit comparison continues to validate every downloaded byte and independently audit the payload; its acquisition/publication rules are unchanged.
 
 Use small offline RED→GREEN/local commits: diagnostic audit; pure record contract; independent release audit; safe release creation; release packaging/CLI. Perform separate producer/verifier reviews and a final invented integrated workflow. Danu then runs the original strict diagnostic audit to a new external report, reviews actual full-run capacity, creates the separate release, checks it independently and packages it. The assistant does not run operational commands, retrieve entities, upload or publish.
+
+Implementation checkpoint:342 offline tests passed29.744s; separate milestone reviews and final independent invented CLI composition are clear. Follow [redirect-release-runbook.md](redirect-release-runbook.md) one guided stop at a time. The actual source audit/release/package remain unexecuted by the assistant.
