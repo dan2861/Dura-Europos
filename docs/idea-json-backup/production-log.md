@@ -10,6 +10,8 @@ Danu's guided disk check reports /dev/disk3s5 with12Gi available and94% capacity
 
 Contract RED: the new invented historical-evidence test failed because retention.py was absent. Seven contract tests then passed; fourteen existing deposit tests passed after verbatim extraction of the pure receipt validation into acquisition.py. Separate contract review found one traceback privacy concern. Added malformed-port regression established RED; generic exception suppression closes that path. Evidence accepts only consistent byte-passed historical records with known source identity, retains unknown times/not_checked, and never establishes limits/new deposit/publication.
 
+Independent verifier RED: both complete and unknown-time historical reports were rejected as unsupported candidate profiles. GREEN:16 verifier tests pass, including handwritten evidence-bearing archives, unchanged bytes and no new deposit claim. False-pass/private-URL/gapped-part rejections were already-green regressions and remain held. Fixed archive/compression/caps are unchanged; the independent checker uses only the neutral schema validator.
+
 | Increment | RED observed | GREEN evidence |
 | --- | --- | --- |
 | Numeric discovery union | Selection module absent | Invented main Q10/Q2 + scholarly Q2/Q1 freezes Q1/Q2/Q10 and preserves exact source bytes |

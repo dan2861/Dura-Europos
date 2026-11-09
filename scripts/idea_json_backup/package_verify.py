@@ -11,6 +11,7 @@ import zlib
 
 from scripts.sample_backup.jsoncodec import Number, loads
 from .collection_verify import verify_collection
+from .retention import validate_retention_evidence
 
 CHECKS = ("inventory", "archive_integrity", "payload_roundtrip")
 POLICY = "uid=0,gid=0,uname=,gname=,mode=0644,mtime=0"
@@ -237,8 +238,9 @@ class Audit:
         profile = inventory["profile"]
         keys(profile, PROFILE_KEYS, "package profile")
         require(profile["format"] == "tar.gz" and integer(profile["gzip_level"]) == 6
-                and integer(profile["gzip_mtime"]) == 0 and profile["tar_header_policy"] == POLICY
-                and profile["retention_evidence"] is None, "Unsupported candidate archive profile")
+                and integer(profile["gzip_mtime"]) == 0 and profile["tar_header_policy"] == POLICY,
+                "Unsupported archive profile")
+        validate_retention_evidence(profile["retention_evidence"])
         limits = {"members": integer(profile["max_members"], positive=True),
                   "bytes": integer(profile["max_payload_bytes_per_part"], positive=True)}
         require(limits["members"] <= 5000 and limits["bytes"] <= 268435456,

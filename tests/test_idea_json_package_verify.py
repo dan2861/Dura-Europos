@@ -83,6 +83,47 @@ def fixture(base):
 
 
 class PackageVerifierTests(unittest.TestCase):
+    def test_historical_retention_evidence_is_preserved_without_new_deposit_claim(self):
+        from scripts.idea_json_backup.package_verify import verify_package
+        from test_idea_json_retention import evidence
+        for complete in (False, True):
+            with self.subTest(complete=complete), TemporaryDirectory() as directory:
+                package, inventory = fixture(Path(directory))
+                historical = evidence(complete=complete)
+                inventory["profile"]["retention_evidence"] = historical
+                write_inventory(package, inventory)
+                before = {path.name: path.read_bytes() for path in package.iterdir()}
+                with patch("socket.socket.connect", side_effect=AssertionError("Offline evidence audit")):
+                    report = verify_package(package)
+                self.assertEqual(report["status"], "passed", report["findings"])
+                self.assertNotIn("deposit_status", report)
+                self.assertEqual(before, {path.name: path.read_bytes() for path in package.iterdir()})
+                saved = json.loads((package / "package-inventory.json").read_bytes())
+                self.assertEqual(saved["profile"]["retention_evidence"], historical)
+
+    def test_historical_retention_evidence_cannot_add_false_or_unsafe_claims(self):
+        from scripts.idea_json_backup.package_verify import verify_package
+        from test_idea_json_retention import evidence
+        for case in ("false_pass", "unsafe_url", "gapped_parts"):
+            with self.subTest(case=case), TemporaryDirectory() as directory:
+                package, inventory = fixture(Path(directory))
+                historical = evidence()
+                if case == "false_pass":
+                    historical["deposit_status"] = "passed"
+                    historical["findings"] = []
+                elif case == "unsafe_url":
+                    historical["acquisition"]["dataset_url"] += "&previewToken=invented-secret"
+                else:
+                    historical["acquisition"]["files"][1]["local_path"] = "part-00002.tar.gz"
+                inventory["profile"]["retention_evidence"] = historical
+                write_inventory(package, inventory)
+                before = {path.name: path.read_bytes() for path in package.iterdir()}
+                report = verify_package(package)
+                self.assertEqual(report["status"], "failed")
+                self.assertEqual(report["checks"][0]["status"], "failed")
+                self.assertNotIn("invented-secret", json.dumps(report))
+                self.assertEqual(before, {path.name: path.read_bytes() for path in package.iterdir()})
+
     def test_linked_or_looped_package_root_returns_a_structured_failure(self):
         from scripts.idea_json_backup.package_verify import verify_package
         for kind in ("link", "loop"):
